@@ -98,6 +98,12 @@ def init_database():
             weights_sum = rating_weight + hotel_count_weight
             total_score = int(weighted_sum / weights_sum)
             
+            # Double score for cities with rating >= 90
+            cursor.execute('SELECT type FROM destinations WHERE id = ?', (dest_id,))
+            dest_type = cursor.fetchone()[0]
+            if dest_type == 'city' and rating >= 90:
+                total_score = min(100, total_score * 2)  # Double but cap at 100
+            
             scores.append((
                 dest_id, 
                 rating_normalized, 
@@ -132,8 +138,7 @@ def update_weights(rating_weight, hotel_count_weight):
         conn.close()
         return False
     
-    # Calculate new total scores directly in SQL using a case expression
-    # This avoids fetching all the data and doing individual updates
+    # First update the weights and calculate the base scores
     cursor.execute('''
         UPDATE destination_score 
         SET 
@@ -151,6 +156,21 @@ def update_weights(rating_weight, hotel_count_weight):
         rating_weight,
         hotel_count_weight
     ))
+    
+    # Then, double the score for cities with rating >= 90
+    cursor.execute('''
+        UPDATE destination_score
+        SET total_score = CASE
+            WHEN total_score * 2 > 100 THEN 100
+            ELSE total_score * 2
+        END
+        WHERE destination_id IN (
+            SELECT d.id
+            FROM destinations d
+            JOIN destination_factor f ON d.id = f.destination_id
+            WHERE d.type = 'city' AND f.rating >= 90
+        )
+    ''')
     
     conn.commit()
     conn.close()
@@ -198,6 +218,9 @@ def main():
     # Web interface
     st.title("Destination Search Sandbox")
     st.write("Enter a search term to find matching cities and areas.")
+    
+    # Notification about score bonus
+    st.info("📈 Cities with ratings of 90 or higher receive a 2x score bonus!")
     
     # Weight adjustment sidebar
     st.sidebar.header("Factor Weights")
