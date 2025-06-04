@@ -7,21 +7,57 @@ def init_database():
     conn = sqlite3.connect('destinations.db')
     cursor = conn.cursor()
 
-    # Create the destinations table
+    # Create the countries table
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS destinations (
+        CREATE TABLE IF NOT EXISTS countries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            type TEXT,
-            name TEXT
+            name TEXT UNIQUE NOT NULL,
+            total_hotels INTEGER DEFAULT 0
         )
     ''')
     
-    # Create the factor table (raw data)
+    # Create the cities table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS cities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            country_id INTEGER,
+            total_hotels INTEGER DEFAULT 0,
+            FOREIGN KEY (country_id) REFERENCES countries(id)
+        )
+    ''')
+    
+    # Create the areas table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS areas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            city_id INTEGER,
+            total_hotels INTEGER DEFAULT 0,
+            FOREIGN KEY (city_id) REFERENCES cities(id)
+        )
+    ''')
+
+    # Create the destinations table (now with foreign keys)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS destinations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            country_id INTEGER,
+            city_id INTEGER,
+            area_id INTEGER,
+            type TEXT CHECK(type IN ('city', 'area')),
+            FOREIGN KEY (country_id) REFERENCES countries(id),
+            FOREIGN KEY (city_id) REFERENCES cities(id),
+            FOREIGN KEY (area_id) REFERENCES areas(id)
+        )
+    ''')
+    
+    # Create the factor table (raw data) - removed hotel_count
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS destination_factor (
             destination_id INTEGER PRIMARY KEY,
             rating INTEGER DEFAULT 0,
-            hotel_count INTEGER DEFAULT 0,
             FOREIGN KEY (destination_id) REFERENCES destinations(id)
         )
     ''')
@@ -30,8 +66,8 @@ def init_database():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS factor_weights (
             type TEXT PRIMARY KEY,  -- 'city' or 'area'
-            rating_weight REAL DEFAULT 0.5,
-            hotel_count_weight REAL DEFAULT 0.5
+            rating_weight REAL DEFAULT 0.7,
+            hotel_count_weight REAL DEFAULT 0.3
         )
     ''')
     
@@ -54,46 +90,116 @@ def init_database():
     # Insert sample data if the table is empty
     cursor.execute('SELECT COUNT(*) FROM destinations')
     if cursor.fetchone()[0] == 0:
-        # Insert destinations first
-        destinations_data = [
-            ('city', 'Paris'),
-            ('city', 'London'),
-            ('city', 'New York'),
-            ('area', 'Eiffel Tower'),
-            ('area', 'Buckingham Palace'),
-            ('area', 'Central Park'),
-            ('city', 'Tokyo'),
-            ('area', 'Shibuya Crossing'),
+        # Insert countries first
+        countries_data = [
+            ('France',),
+            ('United Kingdom',),
+            ('United States',),
+            ('Japan',)
         ]
-        cursor.executemany('INSERT INTO destinations (type, name) VALUES (?, ?)', destinations_data)
+        cursor.executemany('INSERT INTO countries (name) VALUES (?)', countries_data)
+        
+        # Get country IDs for reference
+        cursor.execute('SELECT id, name FROM countries')
+        country_map = {name: id for id, name in cursor.fetchall()}
+        
+        # Insert cities
+        cities_data = [
+            ('Paris', country_map['France']),
+            ('London', country_map['United Kingdom']),
+            ('New York', country_map['United States']),
+            ('Tokyo', country_map['Japan'])
+        ]
+        cursor.executemany('INSERT INTO cities (name, country_id) VALUES (?, ?)', cities_data)
+        
+        # Get city IDs for reference
+        cursor.execute('SELECT id, name FROM cities')
+        city_map = {name: id for id, name in cursor.fetchall()}
+        
+        # Insert areas
+        areas_data = [
+            ('Eiffel Tower', city_map['Paris']),
+            ('Buckingham Palace', city_map['London']),
+            ('Central Park', city_map['New York']),
+            ('Shibuya Crossing', city_map['Tokyo'])
+        ]
+        cursor.executemany('INSERT INTO areas (name, city_id) VALUES (?, ?)', areas_data)
+        
+        # Get area IDs for reference
+        cursor.execute('SELECT id, name FROM areas')
+        area_map = {name: id for id, name in cursor.fetchall()}
+        
+        # Insert destinations (both cities and areas)
+        destinations_data = [
+            # Cities
+            ('Paris', country_map['France'], city_map['Paris'], None, 'city'),
+            ('London', country_map['United Kingdom'], city_map['London'], None, 'city'),
+            ('New York', country_map['United States'], city_map['New York'], None, 'city'),
+            ('Tokyo', country_map['Japan'], city_map['Tokyo'], None, 'city'),
+            # Areas
+            ('Eiffel Tower', country_map['France'], city_map['Paris'], area_map['Eiffel Tower'], 'area'),
+            ('Buckingham Palace', country_map['United Kingdom'], city_map['London'], area_map['Buckingham Palace'], 'area'),
+            ('Central Park', country_map['United States'], city_map['New York'], area_map['Central Park'], 'area'),
+            ('Shibuya Crossing', country_map['Japan'], city_map['Tokyo'], area_map['Shibuya Crossing'], 'area')
+        ]
+        cursor.executemany('INSERT INTO destinations (name, country_id, city_id, area_id, type) VALUES (?, ?, ?, ?, ?)', destinations_data)
         
         # Insert into FTS table
         cursor.execute('INSERT INTO destinations_fts (rowid, name) SELECT id, name FROM destinations')
         
-        # Define raw factor data
-        raw_factors = [
-            (1, 95, 320),  # Paris
-            (2, 90, 270),  # London
-            (3, 88, 420),  # New York
-            (4, 92, 35),   # Eiffel Tower
-            (5, 85, 15),   # Buckingham Palace
-            (6, 80, 50),   # Central Park
-            (7, 91, 380),  # Tokyo
-            (8, 87, 25),   # Shibuya Crossing
+        # Define hotel counts for locations
+        city_hotel_counts = {
+            'Paris': 320,
+            'London': 270, 
+            'New York': 420,
+            'Tokyo': 380
+        }
+        
+        area_hotel_counts = {
+            'Eiffel Tower': 35,
+            'Buckingham Palace': 15,
+            'Central Park': 50,
+            'Shibuya Crossing': 25
+        }
+        
+        # Update cities with total_hotels
+        for city_name, hotel_count in city_hotel_counts.items():
+            cursor.execute('UPDATE cities SET total_hotels = ? WHERE name = ?', (hotel_count, city_name))
+        
+        # Update areas with total_hotels
+        for area_name, hotel_count in area_hotel_counts.items():
+            cursor.execute('UPDATE areas SET total_hotels = ? WHERE name = ?', (hotel_count, area_name))
+        
+        # Update countries with aggregated hotel counts from their cities
+        cursor.execute('''
+            UPDATE countries 
+            SET total_hotels = (
+                SELECT COALESCE(SUM(cities.total_hotels), 0)
+                FROM cities 
+                WHERE cities.country_id = countries.id
+            )
+        ''')
+        
+        # Define rating data only (hotel_count removed)
+        rating_data = [
+            (1, 95),  # Paris
+            (2, 90),  # London
+            (3, 88),  # New York
+            (4, 92),  # Eiffel Tower
+            (5, 85),  # Buckingham Palace
+            (6, 80),  # Central Park
+            (7, 91),  # Tokyo
+            (8, 87),  # Shibuya Crossing
         ]
         
-        # Calculate max hotel count for normalization
-        max_hotel_count = max([row[2] for row in raw_factors])
+        # Insert rating data only
+        cursor.executemany('INSERT INTO destination_factor (destination_id, rating) VALUES (?, ?)', rating_data)
         
-        # Insert raw factor data
-        factors = [(dest_id, rating, hotel_count) for dest_id, rating, hotel_count in raw_factors]
-        cursor.executemany('INSERT INTO destination_factor (destination_id, rating, hotel_count) VALUES (?, ?, ?)', factors)
-        
-        # Set default weights - different for city and area
-        city_rating_weight = 0.7  # Higher weight for rating in cities
-        city_hotel_count_weight = 0.3  # Lower weight for hotel count in cities
-        area_rating_weight = 0.5  # Equal weight for rating in areas
-        area_hotel_count_weight = 0.5  # Equal weight for hotel count in areas
+        # Set default weights with proper hotel count weighting
+        city_rating_weight = 0.7  # Rating weight for cities
+        city_hotel_count_weight = 0.3  # Hotel count weight for cities
+        area_rating_weight = 0.5  # Rating weight for areas
+        area_hotel_count_weight = 0.5  # Hotel count weight for areas
         
         # Insert default factor weights
         default_weights = [
@@ -102,17 +208,44 @@ def init_database():
         ]
         cursor.executemany('INSERT INTO factor_weights (type, rating_weight, hotel_count_weight) VALUES (?, ?, ?)', default_weights)
         
-        # Create scores data
+        # Calculate normalized hotel counts and scores
+        # First, get the maximum city hotel count for normalization
+        cursor.execute('SELECT MAX(total_hotels) FROM cities')
+        max_city_hotels = cursor.fetchone()[0] or 1  # Avoid division by zero
+        
+        # Create scores with normalized hotel counts from location tables
         scores = []
-        for dest_id, rating, hotel_count in raw_factors:
-            # Calculate normalized values on scale of 0-100
-            rating_normalized = rating  # Already on 0-100 scale
-            hotel_count_normalized = int((hotel_count / max_hotel_count) * 100)  # Convert to 0-100 scale
-            
-            # Get destination type and appropriate weights
+        for dest_id, rating in rating_data:
+            # Get destination type and location hotel count
             cursor.execute('SELECT type FROM destinations WHERE id = ?', (dest_id,))
             dest_type = cursor.fetchone()[0]
             
+            # Get hotel count from appropriate location table
+            if dest_type == 'city':
+                cursor.execute('''
+                    SELECT ci.total_hotels 
+                    FROM destinations d 
+                    JOIN cities ci ON d.city_id = ci.id 
+                    WHERE d.id = ?
+                ''', (dest_id,))
+                hotel_count = cursor.fetchone()[0] or 0
+                # Normalize city hotel count: city.total_hotels / max(city.total_hotels)
+                hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
+            else:  # area
+                cursor.execute('''
+                    SELECT ar.total_hotels 
+                    FROM destinations d 
+                    JOIN areas ar ON d.area_id = ar.id 
+                    WHERE d.id = ?
+                ''', (dest_id,))
+                hotel_count = cursor.fetchone()[0] or 0
+                # Normalize area hotel count: area.total_hotels / max(city.total_hotels)
+                hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
+            
+            # Rating is already on 0-100 scale
+            rating_normalized = rating
+            
+            # Get weights for this destination type
             if dest_type == 'city':
                 rating_weight = city_rating_weight
                 hotel_count_weight = city_hotel_count_weight
@@ -123,7 +256,7 @@ def init_database():
             # Calculate weighted total score
             weighted_sum = (rating_normalized * rating_weight) + (hotel_count_normalized * hotel_count_weight)
             weights_sum = rating_weight + hotel_count_weight
-            total_score = int(weighted_sum / weights_sum)
+            total_score = int(weighted_sum / weights_sum) if weights_sum > 0 else rating_normalized
             
             # Double score for cities with rating >= 90
             if dest_type == 'city' and rating >= 90:
@@ -131,19 +264,17 @@ def init_database():
             
             scores.append((
                 dest_id, 
-                rating_normalized, 
+                rating_normalized,
                 hotel_count_normalized,
                 total_score
             ))
         
-        # Insert scores
+        # Insert scores with hotel_count_normalized
         cursor.executemany('''
             INSERT INTO destination_score (
                 destination_id, rating_normalized, hotel_count_normalized, total_score
             ) VALUES (?, ?, ?, ?)
         ''', scores)
-
-        # Default weights already inserted above
 
     conn.commit()
     conn.close()
@@ -175,43 +306,100 @@ def update_weights(dest_type, rating_weight, hotel_count_weight):
         WHERE type = ?
     ''', (rating_weight, hotel_count_weight, dest_type))
     
-    # For each destination of the specified type, recalculate the score
-    cursor.execute('''
-        UPDATE destination_score
-        SET total_score = CAST(
-            ((rating_normalized * ?) + (hotel_count_normalized * ?)) / (? + ?) 
-            AS INTEGER
-        )
-        WHERE destination_id IN (
-            SELECT id FROM destinations WHERE type = ?
-        )
-    ''', (
-        rating_weight,
-        hotel_count_weight,
-        rating_weight,
-        hotel_count_weight,
-        dest_type
-    ))
+    # Get max city hotel count for normalization
+    cursor.execute('SELECT MAX(total_hotels) FROM cities')
+    max_city_hotels = cursor.fetchone()[0] or 1
     
-    # Then, double the score for cities with rating >= 90 (only if updating city weights)
-    if dest_type == 'city':
+    # For each destination of the specified type, recalculate the score
+    cursor.execute('SELECT id FROM destinations WHERE type = ?', (dest_type,))
+    dest_ids = [row[0] for row in cursor.fetchall()]
+    
+    for dest_id in dest_ids:
+        # Get rating
+        cursor.execute('SELECT rating FROM destination_factor WHERE destination_id = ?', (dest_id,))
+        rating = cursor.fetchone()[0] or 0
+        
+        # Get hotel count from appropriate location table and normalize
+        if dest_type == 'city':
+            cursor.execute('''
+                SELECT ci.total_hotels 
+                FROM destinations d 
+                JOIN cities ci ON d.city_id = ci.id 
+                WHERE d.id = ?
+            ''', (dest_id,))
+            hotel_count = cursor.fetchone()[0] or 0
+        else:  # area
+            cursor.execute('''
+                SELECT ar.total_hotels 
+                FROM destinations d 
+                JOIN areas ar ON d.area_id = ar.id 
+                WHERE d.id = ?
+            ''', (dest_id,))
+            hotel_count = cursor.fetchone()[0] or 0
+        
+        # Normalize hotel count
+        hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
+        
+        # Calculate weighted total score
+        weighted_sum = (rating * rating_weight) + (hotel_count_normalized * hotel_count_weight)
+        weights_sum = rating_weight + hotel_count_weight
+        total_score = int(weighted_sum / weights_sum) if weights_sum > 0 else rating
+        
+        # Double score for cities with rating >= 90
+        if dest_type == 'city' and rating >= 90:
+            total_score = min(100, total_score * 2)
+        
+        # Update the score
         cursor.execute('''
             UPDATE destination_score
-            SET total_score = CASE
-                WHEN total_score * 2 > 100 THEN 100
-                ELSE total_score * 2
-            END
-            WHERE destination_id IN (
-                SELECT d.id
-                FROM destinations d
-                JOIN destination_factor f ON d.id = f.destination_id
-                WHERE d.type = 'city' AND f.rating >= 90
-            )
-        ''')
+            SET hotel_count_normalized = ?, total_score = ?
+            WHERE destination_id = ?
+        ''', (hotel_count_normalized, total_score, dest_id))
     
     conn.commit()
     conn.close()
     return True
+
+# Function to get database structure information
+def get_database_info():
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Get countries
+    cursor.execute('SELECT id, name, total_hotels FROM countries ORDER BY name')
+    countries = cursor.fetchall()
+    
+    # Get cities with country names
+    cursor.execute('''
+        SELECT ci.id, ci.name, co.name, ci.total_hotels
+        FROM cities ci
+        JOIN countries co ON ci.country_id = co.id
+        ORDER BY ci.name
+    ''')
+    cities = cursor.fetchall()
+    
+    # Get areas with city and country names  
+    cursor.execute('''
+        SELECT ar.id, ar.name, ci.name, co.name, ar.total_hotels
+        FROM areas ar
+        JOIN cities ci ON ar.city_id = ci.id
+        JOIN countries co ON ci.country_id = co.id
+        ORDER BY ar.name
+    ''')
+    areas = cursor.fetchall()
+    
+    # Get destination counts by type
+    cursor.execute('SELECT type, COUNT(*) FROM destinations GROUP BY type ORDER BY type')
+    destination_counts = cursor.fetchall()
+    
+    conn.close()
+    
+    return {
+        'countries': countries,
+        'cities': cities,
+        'areas': areas,
+        'destination_counts': destination_counts
+    }
 
 # Function to search destinations
 def search_destinations(query):
@@ -222,15 +410,26 @@ def search_destinations(query):
         SELECT 
             d.type, 
             d.name, 
-            f.rating, 
-            f.hotel_count, 
+            co.name as country_name,
+            ci.name as city_name,
+            ar.name as area_name,
+            f.rating,
+            CASE 
+                WHEN d.type = 'city' THEN ci.total_hotels
+                WHEN d.type = 'area' THEN ar.total_hotels
+                ELSE 0
+            END as hotel_count,
             s.rating_normalized, 
             s.hotel_count_normalized,
             s.total_score,
             w.rating_weight,
-            w.hotel_count_weight
+            w.hotel_count_weight,
+            co.total_hotels as country_total_hotels
         FROM destinations d
         JOIN destinations_fts fts ON d.id = fts.rowid
+        LEFT JOIN countries co ON d.country_id = co.id
+        LEFT JOIN cities ci ON d.city_id = ci.id
+        LEFT JOIN areas ar ON d.area_id = ar.id
         LEFT JOIN destination_factor f ON d.id = f.destination_id
         LEFT JOIN destination_score s ON d.id = s.destination_id
         LEFT JOIN factor_weights w ON d.type = w.type
@@ -257,8 +456,9 @@ def main():
     st.title("Destination Search Sandbox")
     st.write("Enter a search term to find matching cities and areas.")
     
-    # Notification about score bonus
+    # Notification about score bonus and hotel count structure
     st.info("📈 Cities with ratings of 90 or higher receive a 2x score bonus!")
+    st.info("🏨 Hotel counts are normalized: Cities by max(city hotels), Areas by max(city hotels)")
     
     # Weight adjustment sidebar
     st.sidebar.header("Factor Weights")
@@ -321,15 +521,16 @@ def main():
         if results:
             # Create main results dataframe
             df = pd.DataFrame(results, columns=[
-                "Type", "Name", "Rating", "Hotel Count", 
+                "Type", "Name", "Country", "City", "Area",
+                "Rating", "Hotel Count", 
                 "Rating (Normalized)", "Hotel Count (Normalized)",
-                "Total Score", "Rating Weight", "Hotel Count Weight"
+                "Total Score", "Rating Weight", "Hotel Count Weight", "Country Total Hotels"
             ])
             
             st.write(f"Found {len(results)} matching destinations:")
             
-            # Show results with weights
-            display_df = df[["Name", "Type", "Total Score", "Rating (Normalized)", "Hotel Count (Normalized)"]]
+            # Show results with location hierarchy
+            display_df = df[["Name", "Type", "Country", "City", "Area", "Total Score", "Rating (Normalized)", "Hotel Count (Normalized)", "Hotel Count", "Country Total Hotels"]]
             st.dataframe(display_df)
             
             # Show factor weights explanation
@@ -340,12 +541,79 @@ def main():
                 
                 st.markdown("""
                 ### How scores are calculated:
-                - For each destination, we calculate: `(Rating × Rating Weight) + (Hotel Count × Hotel Count Weight)`
-                - The weights sum to 1.0 for each destination type
+                - Scores use both rating and normalized hotel count with configurable weights
+                - **Rating**: Destination rating (0-100 scale)
+                - **Hotel Count Normalization**:
+                  - **Cities**: city.total_hotels / max(city.total_hotels) × 100
+                  - **Areas**: area.total_hotels / max(city total_hotels) × 100
+                - **Final Score**: (Rating × Rating Weight) + (Hotel Count Normalized × Hotel Count Weight)
                 - Cities with ratings ≥ 90 receive a 2× score bonus (capped at 100)
+                
+                ### Hotel Count Storage:
+                - **Cities**: Hotel count stored in cities table as total_hotels
+                - **Areas**: Hotel count stored in areas table as total_hotels  
+                - **Countries**: Aggregated hotel count from all cities in that country
+                
+                ### Normalization Benefits:
+                - Both cities and areas use the same normalization base (max city hotels)
+                - This allows fair comparison between city and area hotel counts
+                - Weights can be adjusted to balance rating vs. hotel count importance
                 """)
         else:
             st.write("No matching destinations found.")
+    
+    # Database structure section
+    st.sidebar.header("Database Structure")
+    if st.sidebar.button("Show Database Structure"):
+        info = get_database_info()
+        
+        st.subheader("Countries")
+        st.write(info['countries'])
+        
+        st.subheader("Cities (with Countries)")
+        st.write(info['cities'])
+        
+        st.subheader("Areas (with Cities and Countries)")
+        st.write(info['areas'])
+        
+        st.subheader("Destination Counts by Type")
+        st.write(info['destination_counts'])
+    
+    # Add database structure viewer
+    with st.expander("📊 View Database Structure"):
+        db_info = get_database_info()
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.subheader("Countries")
+            if db_info['countries']:
+                countries_df = pd.DataFrame(db_info['countries'], columns=['ID', 'Name', 'Total Hotels'])
+                st.dataframe(countries_df, hide_index=True)
+            else:
+                st.write("No countries found")
+        
+        with col2:
+            st.subheader("Cities")
+            if db_info['cities']:
+                cities_df = pd.DataFrame(db_info['cities'], columns=['ID', 'City', 'Country', 'Total Hotels'])
+                st.dataframe(cities_df, hide_index=True)
+            else:
+                st.write("No cities found")
+        
+        with col3:
+            st.subheader("Areas")
+            if db_info['areas']:
+                areas_df = pd.DataFrame(db_info['areas'], columns=['ID', 'Area', 'City', 'Country', 'Total Hotels'])
+                st.dataframe(areas_df, hide_index=True)
+            else:
+                st.write("No areas found")
+        
+        # Show destination type counts
+        if db_info['destination_counts']:
+            st.subheader("Destination Summary")
+            counts_df = pd.DataFrame(db_info['destination_counts'], columns=['Type', 'Count'])
+            st.dataframe(counts_df, hide_index=True)
 
 if __name__ == "__main__":
     main()
