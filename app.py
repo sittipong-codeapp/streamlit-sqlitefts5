@@ -15,6 +15,29 @@ def init_database():
             name TEXT
         )
     ''')
+    
+    # Create the factor table (raw data)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS destination_factor (
+            destination_id INTEGER PRIMARY KEY,
+            rating INTEGER DEFAULT 0,
+            hotel_count INTEGER DEFAULT 0,
+            FOREIGN KEY (destination_id) REFERENCES destinations(id)
+        )
+    ''')
+    
+    # Create the score table (normalized factors and total score)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS destination_score (
+            destination_id INTEGER PRIMARY KEY,
+            rating_normalized INTEGER DEFAULT 0,
+            hotel_count_normalized INTEGER DEFAULT 0,
+            rating_weight REAL DEFAULT 0.5,
+            hotel_count_weight REAL DEFAULT 0.5,
+            total_score INTEGER DEFAULT 0,
+            FOREIGN KEY (destination_id) REFERENCES destinations(id)
+        )
+    ''')
 
     # Create the FTS5 virtual table
     cursor.execute('''
@@ -24,7 +47,8 @@ def init_database():
     # Insert sample data if the table is empty
     cursor.execute('SELECT COUNT(*) FROM destinations')
     if cursor.fetchone()[0] == 0:
-        sample_data = [
+        # Insert destinations first
+        destinations_data = [
             ('city', 'Paris'),
             ('city', 'London'),
             ('city', 'New York'),
@@ -34,8 +58,62 @@ def init_database():
             ('city', 'Tokyo'),
             ('area', 'Shibuya Crossing'),
         ]
-        cursor.executemany('INSERT INTO destinations (type, name) VALUES (?, ?)', sample_data)
+        cursor.executemany('INSERT INTO destinations (type, name) VALUES (?, ?)', destinations_data)
+        
+        # Insert into FTS table
         cursor.execute('INSERT INTO destinations_fts (rowid, name) SELECT id, name FROM destinations')
+        
+        # Define raw factor data
+        raw_factors = [
+            (1, 95, 320),  # Paris
+            (2, 90, 270),  # London
+            (3, 88, 420),  # New York
+            (4, 92, 35),   # Eiffel Tower
+            (5, 85, 15),   # Buckingham Palace
+            (6, 80, 50),   # Central Park
+            (7, 91, 380),  # Tokyo
+            (8, 87, 25),   # Shibuya Crossing
+        ]
+        
+        # Calculate max hotel count for normalization
+        max_hotel_count = max([row[2] for row in raw_factors])
+        
+        # Insert raw factor data
+        factors = [(dest_id, rating, hotel_count) for dest_id, rating, hotel_count in raw_factors]
+        cursor.executemany('INSERT INTO destination_factor (destination_id, rating, hotel_count) VALUES (?, ?, ?)', factors)
+        
+        # Set default weights
+        rating_weight = 0.7  # Higher weight for rating
+        hotel_count_weight = 0.3  # Lower weight for hotel count
+        
+        # Create scores data
+        scores = []
+        for dest_id, rating, hotel_count in raw_factors:
+            # Calculate normalized values on scale of 0-100
+            rating_normalized = rating  # Already on 0-100 scale
+            hotel_count_normalized = int((hotel_count / max_hotel_count) * 100)  # Convert to 0-100 scale
+            
+            # Calculate weighted total score
+            weighted_sum = (rating_normalized * rating_weight) + (hotel_count_normalized * hotel_count_weight)
+            weights_sum = rating_weight + hotel_count_weight
+            total_score = int(weighted_sum / weights_sum)
+            
+            scores.append((
+                dest_id, 
+                rating_normalized, 
+                hotel_count_normalized,
+                rating_weight,
+                hotel_count_weight,
+                total_score
+            ))
+        
+        # Insert scores
+        cursor.executemany('''
+            INSERT INTO destination_score (
+                destination_id, rating_normalized, hotel_count_normalized,
+                rating_weight, hotel_count_weight, total_score
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        ''', scores)
 
     conn.commit()
     conn.close()
@@ -44,17 +122,62 @@ def init_database():
 def get_connection():
     return sqlite3.connect('destinations.db')
 
+# Function to update factor weights and recalculate total score
+def update_weights(rating_weight, hotel_count_weight):
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Validate weights (should be between 0 and 1)
+    if not (0 <= rating_weight <= 1 and 0 <= hotel_count_weight <= 1):
+        conn.close()
+        return False
+    
+    # Calculate new total scores directly in SQL using a case expression
+    # This avoids fetching all the data and doing individual updates
+    cursor.execute('''
+        UPDATE destination_score 
+        SET 
+            rating_weight = ?,
+            hotel_count_weight = ?,
+            total_score = CAST(
+                ((rating_normalized * ?) + (hotel_count_normalized * ?)) / (? + ?) 
+                AS INTEGER
+            )
+    ''', (
+        rating_weight, 
+        hotel_count_weight, 
+        rating_weight, 
+        hotel_count_weight,
+        rating_weight,
+        hotel_count_weight
+    ))
+    
+    conn.commit()
+    conn.close()
+    return True
+
 # Function to search destinations
 def search_destinations(query):
     conn = get_connection()
     cursor = conn.cursor()
     match_pattern = f"{query}*"
     cursor.execute('''
-        SELECT d.type, d.name
+        SELECT 
+            d.type, 
+            d.name, 
+            f.rating, 
+            f.hotel_count, 
+            s.rating_normalized, 
+            s.hotel_count_normalized,
+            s.rating_weight,
+            s.hotel_count_weight,
+            s.total_score
         FROM destinations d
-        JOIN destinations_fts f ON d.id = f.rowid
-        WHERE f.name MATCH ?
-        ORDER BY rank
+        JOIN destinations_fts fts ON d.id = fts.rowid
+        LEFT JOIN destination_factor f ON d.id = f.destination_id
+        LEFT JOIN destination_score s ON d.id = s.destination_id
+        WHERE fts.name MATCH ?
+        ORDER BY s.total_score DESC
         LIMIT 20
     ''', (match_pattern,))
     results = cursor.fetchall()
@@ -66,17 +189,66 @@ def main():
     # Initialize the database
     init_database()
 
+    # Set sidebar to collapsed by default
+    st.set_page_config(
+        page_title="Destination Search Sandbox",
+        initial_sidebar_state="collapsed"
+    )
+    
     # Web interface
     st.title("Destination Search Sandbox")
     st.write("Enter a search term to find matching cities and areas.")
     
+    # Weight adjustment sidebar
+    st.sidebar.header("Factor Weights")
+    st.sidebar.write("Adjust the importance of each factor (between 0 and 1)")
+    
+    # Get current weights from first destination
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT rating_weight, hotel_count_weight FROM destination_score LIMIT 1")
+    weights = cursor.fetchone()
+    conn.close()
+    
+    if weights:
+        current_rating_weight, current_hotel_weight = weights
+    else:
+        current_rating_weight, current_hotel_weight = 0.7, 0.3
+    
+    # Weight adjustment sliders
+    with st.sidebar.form("weight_form"):
+        rating_weight = st.slider("Rating Weight:", 0.0, 1.0, float(current_rating_weight), 0.05)
+        hotel_weight = st.slider("Hotel Count Weight:", 0.0, 1.0, float(current_hotel_weight), 0.05)
+        
+        submit_weights = st.form_submit_button("Update Weights")
+        
+        if submit_weights:
+            if update_weights(rating_weight, hotel_weight):
+                st.sidebar.success("Weights updated successfully!")
+            else:
+                st.sidebar.error("Failed to update weights. Make sure values are between 0 and 1.")
+    
+    # Search section
     query = st.text_input("Search for a destination:")
     if query:
         results = search_destinations(query)
         if results:
-            df = pd.DataFrame(results, columns=["Type", "Name"])
+            # Create main results dataframe
+            df = pd.DataFrame(results, columns=[
+                "Type", "Name", "Rating", "Hotel Count", 
+                "Rating (Normalized)", "Hotel Count (Normalized)",
+                "Rating Weight", "Hotel Weight", "Total Score"
+            ])
+            
             st.write(f"Found {len(results)} matching destinations:")
-            st.dataframe(df)
+            
+            # Format weights to show 2 decimal places
+            df["Rating Weight"] = df["Rating Weight"].apply(lambda x: f"{x:.2f}")
+            df["Hotel Weight"] = df["Hotel Weight"].apply(lambda x: f"{x:.2f}")
+            
+            # Show simplified dataframe with most relevant columns
+            display_df = df[["Name", "Type", "Total Score", "Rating (Normalized)", "Hotel Count (Normalized)"]]
+            st.dataframe(display_df)
         else:
             st.write("No matching destinations found.")
 
