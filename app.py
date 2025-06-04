@@ -66,8 +66,9 @@ def init_database():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS factor_weights (
             type TEXT PRIMARY KEY,  -- 'city' or 'area'
-            rating_weight REAL DEFAULT 0.7,
-            hotel_count_weight REAL DEFAULT 0.3
+            rating_weight REAL DEFAULT 0.5,
+            hotel_count_weight REAL DEFAULT 0.3,
+            country_hotel_count_weight REAL DEFAULT 0.2
         )
     ''')
     
@@ -77,6 +78,7 @@ def init_database():
             destination_id INTEGER PRIMARY KEY,
             rating_normalized INTEGER DEFAULT 0,
             hotel_count_normalized INTEGER DEFAULT 0,
+            country_hotel_count_normalized INTEGER DEFAULT 0,
             total_score INTEGER DEFAULT 0,
             FOREIGN KEY (destination_id) REFERENCES destinations(id)
         )
@@ -195,18 +197,20 @@ def init_database():
         # Insert rating data only
         cursor.executemany('INSERT INTO destination_factor (destination_id, rating) VALUES (?, ?)', rating_data)
         
-        # Set default weights with proper hotel count weighting
-        city_rating_weight = 0.7  # Rating weight for cities
-        city_hotel_count_weight = 0.3  # Hotel count weight for cities
-        area_rating_weight = 0.5  # Rating weight for areas
-        area_hotel_count_weight = 0.5  # Hotel count weight for areas
+        # Set default weights with three-factor weighting
+        city_rating_weight = 0.5  # Rating weight for cities
+        city_hotel_count_weight = 0.3  # Global hotel count weight for cities
+        city_country_hotel_count_weight = 0.2  # Country hotel count weight for cities
+        area_rating_weight = 0.4  # Rating weight for areas
+        area_hotel_count_weight = 0.3  # Global hotel count weight for areas
+        area_country_hotel_count_weight = 0.3  # Country hotel count weight for areas
         
         # Insert default factor weights
         default_weights = [
-            ('city', city_rating_weight, city_hotel_count_weight),
-            ('area', area_rating_weight, area_hotel_count_weight)
+            ('city', city_rating_weight, city_hotel_count_weight, city_country_hotel_count_weight),
+            ('area', area_rating_weight, area_hotel_count_weight, area_country_hotel_count_weight)
         ]
-        cursor.executemany('INSERT INTO factor_weights (type, rating_weight, hotel_count_weight) VALUES (?, ?, ?)', default_weights)
+        cursor.executemany('INSERT INTO factor_weights (type, rating_weight, hotel_count_weight, country_hotel_count_weight) VALUES (?, ?, ?, ?)', default_weights)
         
         # Calculate normalized hotel counts and scores
         # First, get the maximum city hotel count for normalization
@@ -216,9 +220,13 @@ def init_database():
         # Create scores with normalized hotel counts from location tables
         scores = []
         for dest_id, rating in rating_data:
-            # Get destination type and location hotel count
-            cursor.execute('SELECT type FROM destinations WHERE id = ?', (dest_id,))
-            dest_type = cursor.fetchone()[0]
+            # Get destination type, country, and location hotel count
+            cursor.execute('''
+                SELECT d.type, d.country_id 
+                FROM destinations d 
+                WHERE d.id = ?
+            ''', (dest_id,))
+            dest_type, country_id = cursor.fetchone()
             
             # Get hotel count from appropriate location table
             if dest_type == 'city':
@@ -231,6 +239,15 @@ def init_database():
                 hotel_count = cursor.fetchone()[0] or 0
                 # Normalize city hotel count: city.total_hotels / max(city.total_hotels)
                 hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
+                
+                # Get max hotel count within the same country for country normalization
+                cursor.execute('''
+                    SELECT MAX(ci.total_hotels) 
+                    FROM cities ci 
+                    WHERE ci.country_id = ?
+                ''', (country_id,))
+                max_country_city_hotels = cursor.fetchone()[0] or 1
+                country_hotel_count_normalized = int((hotel_count / max_country_city_hotels) * 100)
             else:  # area
                 cursor.execute('''
                     SELECT ar.total_hotels 
@@ -241,6 +258,15 @@ def init_database():
                 hotel_count = cursor.fetchone()[0] or 0
                 # Normalize area hotel count: area.total_hotels / max(city.total_hotels)
                 hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
+                
+                # Get max hotel count within the same country for country normalization
+                cursor.execute('''
+                    SELECT MAX(ci.total_hotels) 
+                    FROM cities ci 
+                    WHERE ci.country_id = ?
+                ''', (country_id,))
+                max_country_city_hotels = cursor.fetchone()[0] or 1
+                country_hotel_count_normalized = int((hotel_count / max_country_city_hotels) * 100)
             
             # Rating is already on 0-100 scale
             rating_normalized = rating
@@ -249,13 +275,15 @@ def init_database():
             if dest_type == 'city':
                 rating_weight = city_rating_weight
                 hotel_count_weight = city_hotel_count_weight
+                country_hotel_count_weight = city_country_hotel_count_weight
             else:  # area
                 rating_weight = area_rating_weight
                 hotel_count_weight = area_hotel_count_weight
+                country_hotel_count_weight = area_country_hotel_count_weight
             
-            # Calculate weighted total score
-            weighted_sum = (rating_normalized * rating_weight) + (hotel_count_normalized * hotel_count_weight)
-            weights_sum = rating_weight + hotel_count_weight
+            # Calculate weighted total score with three factors
+            weighted_sum = (rating_normalized * rating_weight) + (hotel_count_normalized * hotel_count_weight) + (country_hotel_count_normalized * country_hotel_count_weight)
+            weights_sum = rating_weight + hotel_count_weight + country_hotel_count_weight
             total_score = int(weighted_sum / weights_sum) if weights_sum > 0 else rating_normalized
             
             # Double score for cities with rating >= 90
@@ -266,14 +294,15 @@ def init_database():
                 dest_id, 
                 rating_normalized,
                 hotel_count_normalized,
+                country_hotel_count_normalized,
                 total_score
             ))
         
-        # Insert scores with hotel_count_normalized
+        # Insert scores with both hotel count normalizations
         cursor.executemany('''
             INSERT INTO destination_score (
-                destination_id, rating_normalized, hotel_count_normalized, total_score
-            ) VALUES (?, ?, ?, ?)
+                destination_id, rating_normalized, hotel_count_normalized, country_hotel_count_normalized, total_score
+            ) VALUES (?, ?, ?, ?, ?)
         ''', scores)
 
     conn.commit()
@@ -284,12 +313,12 @@ def get_connection():
     return sqlite3.connect('destinations.db')
 
 # Function to update factor weights and recalculate total score
-def update_weights(dest_type, rating_weight, hotel_count_weight):
+def update_weights(dest_type, rating_weight, hotel_count_weight, country_hotel_count_weight):
     conn = get_connection()
     cursor = conn.cursor()
     
     # Validate weights (should be between 0 and 1)
-    if not (0 <= rating_weight <= 1 and 0 <= hotel_count_weight <= 1):
+    if not (0 <= rating_weight <= 1 and 0 <= hotel_count_weight <= 1 and 0 <= country_hotel_count_weight <= 1):
         conn.close()
         return False
     
@@ -302,9 +331,10 @@ def update_weights(dest_type, rating_weight, hotel_count_weight):
     cursor.execute('''
         UPDATE factor_weights
         SET rating_weight = ?,
-            hotel_count_weight = ?
+            hotel_count_weight = ?,
+            country_hotel_count_weight = ?
         WHERE type = ?
-    ''', (rating_weight, hotel_count_weight, dest_type))
+    ''', (rating_weight, hotel_count_weight, country_hotel_count_weight, dest_type))
     
     # Get max city hotel count for normalization
     cursor.execute('SELECT MAX(total_hotels) FROM cities')
@@ -315,9 +345,15 @@ def update_weights(dest_type, rating_weight, hotel_count_weight):
     dest_ids = [row[0] for row in cursor.fetchall()]
     
     for dest_id in dest_ids:
-        # Get rating
-        cursor.execute('SELECT rating FROM destination_factor WHERE destination_id = ?', (dest_id,))
-        rating = cursor.fetchone()[0] or 0
+        # Get rating and country
+        cursor.execute('''
+            SELECT f.rating, d.country_id 
+            FROM destination_factor f 
+            JOIN destinations d ON f.destination_id = d.id 
+            WHERE f.destination_id = ?
+        ''', (dest_id,))
+        rating, country_id = cursor.fetchone()
+        rating = rating or 0
         
         # Get hotel count from appropriate location table and normalize
         if dest_type == 'city':
@@ -328,6 +364,14 @@ def update_weights(dest_type, rating_weight, hotel_count_weight):
                 WHERE d.id = ?
             ''', (dest_id,))
             hotel_count = cursor.fetchone()[0] or 0
+            
+            # Get max hotel count within the same country
+            cursor.execute('''
+                SELECT MAX(ci.total_hotels) 
+                FROM cities ci 
+                WHERE ci.country_id = ?
+            ''', (country_id,))
+            max_country_city_hotels = cursor.fetchone()[0] or 1
         else:  # area
             cursor.execute('''
                 SELECT ar.total_hotels 
@@ -336,13 +380,22 @@ def update_weights(dest_type, rating_weight, hotel_count_weight):
                 WHERE d.id = ?
             ''', (dest_id,))
             hotel_count = cursor.fetchone()[0] or 0
+            
+            # Get max hotel count within the same country
+            cursor.execute('''
+                SELECT MAX(ci.total_hotels) 
+                FROM cities ci 
+                WHERE ci.country_id = ?
+            ''', (country_id,))
+            max_country_city_hotels = cursor.fetchone()[0] or 1
         
-        # Normalize hotel count
+        # Normalize hotel counts - global and country level
         hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
+        country_hotel_count_normalized = int((hotel_count / max_country_city_hotels) * 100)
         
-        # Calculate weighted total score
-        weighted_sum = (rating * rating_weight) + (hotel_count_normalized * hotel_count_weight)
-        weights_sum = rating_weight + hotel_count_weight
+        # Calculate weighted total score with three factors
+        weighted_sum = (rating * rating_weight) + (hotel_count_normalized * hotel_count_weight) + (country_hotel_count_normalized * country_hotel_count_weight)
+        weights_sum = rating_weight + hotel_count_weight + country_hotel_count_weight
         total_score = int(weighted_sum / weights_sum) if weights_sum > 0 else rating
         
         # Double score for cities with rating >= 90
@@ -352,9 +405,9 @@ def update_weights(dest_type, rating_weight, hotel_count_weight):
         # Update the score
         cursor.execute('''
             UPDATE destination_score
-            SET hotel_count_normalized = ?, total_score = ?
+            SET hotel_count_normalized = ?, country_hotel_count_normalized = ?, total_score = ?
             WHERE destination_id = ?
-        ''', (hotel_count_normalized, total_score, dest_id))
+        ''', (hotel_count_normalized, country_hotel_count_normalized, total_score, dest_id))
     
     conn.commit()
     conn.close()
@@ -421,9 +474,11 @@ def search_destinations(query):
             END as hotel_count,
             s.rating_normalized, 
             s.hotel_count_normalized,
+            s.country_hotel_count_normalized,
             s.total_score,
             w.rating_weight,
             w.hotel_count_weight,
+            w.country_hotel_count_weight,
             co.total_hotels as country_total_hotels
         FROM destinations d
         JOIN destinations_fts fts ON d.id = fts.rowid
@@ -458,7 +513,8 @@ def main():
     
     # Notification about score bonus and hotel count structure
     st.info("📈 Cities with ratings of 90 or higher receive a 2x score bonus!")
-    st.info("🏨 Hotel counts are normalized: Cities by max(city hotels), Areas by max(city hotels)")
+    st.info("🏨 **Three-Factor Scoring**: Rating + Global Hotel Normalization + Country Hotel Normalization")
+    st.info("🌍 Hotel counts normalized both globally and within each country for fair competition")
     
     # Weight adjustment sidebar
     st.sidebar.header("Factor Weights")
@@ -467,23 +523,24 @@ def main():
     # Get current weights from factor_weights table
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT type, rating_weight, hotel_count_weight FROM factor_weights")
+    cursor.execute("SELECT type, rating_weight, hotel_count_weight, country_hotel_count_weight FROM factor_weights")
     weights_data = cursor.fetchall()
     conn.close()
     
     # Create dictionary of current weights by destination type
     current_weights = {}
-    for dest_type, rating_weight, hotel_count_weight in weights_data:
+    for dest_type, rating_weight, hotel_count_weight, country_hotel_count_weight in weights_data:
         current_weights[dest_type] = {
             'rating_weight': rating_weight,
-            'hotel_count_weight': hotel_count_weight
+            'hotel_count_weight': hotel_count_weight,
+            'country_hotel_count_weight': country_hotel_count_weight
         }
     
-    # Default values if no weights found
+    # Default values if no weights found (three-factor system)
     if 'city' not in current_weights:
-        current_weights['city'] = {'rating_weight': 0.7, 'hotel_count_weight': 0.3}
+        current_weights['city'] = {'rating_weight': 0.5, 'hotel_count_weight': 0.3, 'country_hotel_count_weight': 0.2}
     if 'area' not in current_weights:
-        current_weights['area'] = {'rating_weight': 0.5, 'hotel_count_weight': 0.5}
+        current_weights['area'] = {'rating_weight': 0.4, 'hotel_count_weight': 0.3, 'country_hotel_count_weight': 0.3}
     
     # Weight adjustment forms - one for each destination type
     dest_types = ['city', 'area']
@@ -500,16 +557,30 @@ def main():
             )
             
             hotel_count_weight = st.slider(
-                f"{dest_type.title()} Hotel Count Weight:", 
+                f"{dest_type.title()} Global Hotel Count Weight:", 
                 0.0, 1.0, 
                 float(current_weights[dest_type]['hotel_count_weight']), 
                 0.05
             )
             
+            country_hotel_count_weight = st.slider(
+                f"{dest_type.title()} Country Hotel Count Weight:", 
+                0.0, 1.0, 
+                float(current_weights[dest_type]['country_hotel_count_weight']), 
+                0.05
+            )
+            
+            # Show weight sum for validation
+            weight_sum = rating_weight + hotel_count_weight + country_hotel_count_weight
+            if weight_sum > 0:
+                st.write(f"Weight Sum: {weight_sum:.2f}")
+                if weight_sum != 1.0:
+                    st.warning("💡 Weights don't sum to 1.0 - will be normalized automatically")
+            
             submit_weights = st.form_submit_button(f"Update {dest_type.title()} Weights")
             
             if submit_weights:
-                if update_weights(dest_type, rating_weight, hotel_count_weight):
+                if update_weights(dest_type, rating_weight, hotel_count_weight, country_hotel_count_weight):
                     st.sidebar.success(f"{dest_type.title()} weights updated successfully!")
                 else:
                     st.sidebar.error(f"Failed to update {dest_type.title()} weights. Make sure values are between 0 and 1.")
@@ -523,30 +594,33 @@ def main():
             df = pd.DataFrame(results, columns=[
                 "Type", "Name", "Country", "City", "Area",
                 "Rating", "Hotel Count", 
-                "Rating (Normalized)", "Hotel Count (Normalized)",
-                "Total Score", "Rating Weight", "Hotel Count Weight", "Country Total Hotels"
+                "Rating (Normalized)", "Hotel Count (Normalized)", "Country Hotel Count (Normalized)",
+                "Total Score", "Rating Weight", "Hotel Count Weight", "Country Hotel Count Weight", "Country Total Hotels"
             ])
             
             st.write(f"Found {len(results)} matching destinations:")
             
             # Show results with location hierarchy
-            display_df = df[["Name", "Type", "Country", "City", "Area", "Total Score", "Rating (Normalized)", "Hotel Count (Normalized)", "Hotel Count", "Country Total Hotels"]]
+            display_df = df[["Name", "Type", "Country", "City", "Area", "Total Score", "Rating (Normalized)", "Hotel Count (Normalized)", "Country Hotel Count (Normalized)", "Hotel Count", "Country Total Hotels"]]
             st.dataframe(display_df)
             
             # Show factor weights explanation
             with st.expander("View Factor Weights for Results"):
                 # Group by type and show weights
-                weights_df = df[["Type", "Rating Weight", "Hotel Count Weight"]].drop_duplicates()
+                weights_df = df[["Type", "Rating Weight", "Hotel Count Weight", "Country Hotel Count Weight"]].drop_duplicates()
                 st.dataframe(weights_df)
                 
                 st.markdown("""
                 ### How scores are calculated:
-                - Scores use both rating and normalized hotel count with configurable weights
+                - Scores use **three weighted factors**: rating, global hotel normalization, and country hotel normalization
                 - **Rating**: Destination rating (0-100 scale)
-                - **Hotel Count Normalization**:
-                  - **Cities**: city.total_hotels / max(city.total_hotels) × 100
-                  - **Areas**: area.total_hotels / max(city total_hotels) × 100
-                - **Final Score**: (Rating × Rating Weight) + (Hotel Count Normalized × Hotel Count Weight)
+                - **Global Hotel Count Normalization**:
+                  - **Cities**: city.total_hotels / max(city.total_hotels globally) × 100
+                  - **Areas**: area.total_hotels / max(city.total_hotels globally) × 100
+                - **Country Hotel Count Normalization**:
+                  - **Cities**: city.total_hotels / max(city.total_hotels in same country) × 100
+                  - **Areas**: area.total_hotels / max(city.total_hotels in same country) × 100
+                - **Final Score**: (Rating × Rating Weight) + (Global Hotel Count Normalized × Global Hotel Count Weight) + (Country Hotel Count Normalized × Country Hotel Count Weight)
                 - Cities with ratings ≥ 90 receive a 2× score bonus (capped at 100)
                 
                 ### Hotel Count Storage:
@@ -554,10 +628,11 @@ def main():
                 - **Areas**: Hotel count stored in areas table as total_hotels  
                 - **Countries**: Aggregated hotel count from all cities in that country
                 
-                ### Normalization Benefits:
-                - Both cities and areas use the same normalization base (max city hotels)
-                - This allows fair comparison between city and area hotel counts
-                - Weights can be adjusted to balance rating vs. hotel count importance
+                ### Dual-Level Normalization Benefits:
+                - **Global normalization** allows comparison across all destinations worldwide
+                - **Country normalization** enables fair competition within regional markets
+                - Areas can compete more effectively against cities within their country
+                - Configurable weights allow balancing between global reach and local market dominance
                 """)
         else:
             st.write("No matching destinations found.")
