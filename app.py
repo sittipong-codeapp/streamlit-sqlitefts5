@@ -73,9 +73,17 @@ def init_database():
         )
     ''')
 
-    # Create the FTS5 virtual table
+    # Create separate FTS5 virtual tables for countries, cities and areas
     cursor.execute('''
-        CREATE VIRTUAL TABLE IF NOT EXISTS destination_fts USING fts5(name, content=destination, content_rowid=id)
+        CREATE VIRTUAL TABLE IF NOT EXISTS country_fts USING fts5(name, content=country, content_rowid=id)
+    ''')
+    
+    cursor.execute('''
+        CREATE VIRTUAL TABLE IF NOT EXISTS city_fts USING fts5(name, content=city, content_rowid=id)
+    ''')
+    
+    cursor.execute('''
+        CREATE VIRTUAL TABLE IF NOT EXISTS area_fts USING fts5(name, content=area, content_rowid=id)
     ''')
 
     # Insert sample data if the table is empty
@@ -135,8 +143,10 @@ def init_database():
         ]
         cursor.executemany('INSERT INTO destination (name, country_id, city_id, area_id, type) VALUES (?, ?, ?, ?, ?)', destinations_data)
         
-        # Insert into FTS table
-        cursor.execute('INSERT INTO destination_fts (rowid, name) SELECT id, name FROM destination')
+        # Insert into separate FTS tables
+        cursor.execute('INSERT INTO country_fts (rowid, name) SELECT id, name FROM country')
+        cursor.execute('INSERT INTO city_fts (rowid, name) SELECT id, name FROM city')
+        cursor.execute('INSERT INTO area_fts (rowid, name) SELECT id, name FROM area')
         
         # Define hotel counts for locations
         city_hotel_counts = {
@@ -411,36 +421,116 @@ def search_destinations(query):
     conn = get_connection()
     cursor = conn.cursor()
     match_pattern = f"{query}*"
+    
+    # Enhanced search with multiple FTS strategies:
+    # 1. Direct city name match (FTS search)
+    # 2. Direct area name match (FTS search)
+    # 3. Cities by country name match (FTS search on country names)
+    # 4. Areas by city name match (FTS search on city names)
     cursor.execute('''
-        SELECT 
-            d.type, 
-            d.name, 
+        SELECT DISTINCT
+            'city' as type,
+            ci.name, 
             co.name as country_name,
             ci.name as city_name,
-            ar.name as area_name,
-            CASE 
-                WHEN d.type = 'city' THEN ci.total_hotels
-                WHEN d.type = 'area' THEN ar.total_hotels
-                ELSE 0
-            END as hotel_count,
+            NULL as area_name,
+            ci.total_hotels as hotel_count,
             s.hotel_count_normalized,
             s.country_hotel_count_normalized,
             s.total_score,
             w.hotel_count_weight,
             w.country_hotel_count_weight,
-            co.total_hotels as country_total_hotels
-        FROM destination d
-        JOIN destination_fts fts ON d.id = fts.rowid
-        LEFT JOIN country co ON d.country_id = co.id
-        LEFT JOIN city ci ON d.city_id = ci.id
-        LEFT JOIN area ar ON d.area_id = ar.id
+            co.total_hotels as country_total_hotels,
+            'direct_city' as match_type
+        FROM city ci
+        JOIN city_fts fts ON ci.id = fts.rowid
+        LEFT JOIN country co ON ci.country_id = co.id
+        LEFT JOIN destination d ON d.city_id = ci.id AND d.type = 'city'
         LEFT JOIN destination_score s ON d.id = s.destination_id
-        LEFT JOIN factor_weights w ON d.type = w.type
+        LEFT JOIN factor_weights w ON w.type = 'city'
         WHERE fts.name MATCH ?
-        ORDER BY s.total_score DESC
+        
+        UNION
+        
+        SELECT DISTINCT
+            'area' as type,
+            ar.name, 
+            co.name as country_name,
+            ci.name as city_name,
+            ar.name as area_name,
+            ar.total_hotels as hotel_count,
+            s.hotel_count_normalized,
+            s.country_hotel_count_normalized,
+            s.total_score,
+            w.hotel_count_weight,
+            w.country_hotel_count_weight,
+            co.total_hotels as country_total_hotels,
+            'direct_area' as match_type
+        FROM area ar
+        JOIN area_fts fts ON ar.id = fts.rowid
+        LEFT JOIN city ci ON ar.city_id = ci.id
+        LEFT JOIN country co ON ci.country_id = co.id
+        LEFT JOIN destination d ON d.area_id = ar.id AND d.type = 'area'
+        LEFT JOIN destination_score s ON d.id = s.destination_id
+        LEFT JOIN factor_weights w ON w.type = 'area'
+        WHERE fts.name MATCH ?
+        
+        UNION
+        
+        SELECT DISTINCT
+            'city' as type,
+            ci.name, 
+            co.name as country_name,
+            ci.name as city_name,
+            NULL as area_name,
+            ci.total_hotels as hotel_count,
+            s.hotel_count_normalized,
+            s.country_hotel_count_normalized,
+            s.total_score,
+            w.hotel_count_weight,
+            w.country_hotel_count_weight,
+            co.total_hotels as country_total_hotels,
+            'city_by_country_fts' as match_type
+        FROM city ci
+        LEFT JOIN country co ON ci.country_id = co.id
+        JOIN country_fts country_fts ON co.id = country_fts.rowid
+        LEFT JOIN destination d ON d.city_id = ci.id AND d.type = 'city'
+        LEFT JOIN destination_score s ON d.id = s.destination_id
+        LEFT JOIN factor_weights w ON w.type = 'city'
+        WHERE country_fts.name MATCH ?
+        
+        UNION
+        
+        SELECT DISTINCT
+            'area' as type,
+            ar.name, 
+            co.name as country_name,
+            ci.name as city_name,
+            ar.name as area_name,
+            ar.total_hotels as hotel_count,
+            s.hotel_count_normalized,
+            s.country_hotel_count_normalized,
+            s.total_score,
+            w.hotel_count_weight,
+            w.country_hotel_count_weight,
+            co.total_hotels as country_total_hotels,
+            'area_by_city_fts' as match_type
+        FROM area ar
+        LEFT JOIN city ci ON ar.city_id = ci.id
+        JOIN city_fts city_fts ON ci.id = city_fts.rowid
+        LEFT JOIN country co ON ci.country_id = co.id
+        LEFT JOIN destination d ON d.area_id = ar.id AND d.type = 'area'
+        LEFT JOIN destination_score s ON d.id = s.destination_id
+        LEFT JOIN factor_weights w ON w.type = 'area'
+        WHERE city_fts.name MATCH ?
+        
+        ORDER BY total_score DESC
         LIMIT 20
-    ''', (match_pattern,))
+    ''', (match_pattern, match_pattern, match_pattern, match_pattern))
+    
+    # Remove the match_type column from results before returning
     results = cursor.fetchall()
+    results = [row[:-1] for row in results]  # Remove last column (match_type)
     conn.close()
     return results
 
@@ -457,10 +547,17 @@ def main():
     
     # Web interface
     st.title("🎯 Destination Search Engine")
-    st.write("**Customizable Two-Factor Scoring** - Search destinations with adjustable hotel-based ranking")
+    st.write("**Enhanced FTS Search with Multi-Strategy Support** - Search destinations with flexible query options")
     
-    # Notification about the two-factor scoring system with adjustable weights
-    st.info("🏨 **Two-Factor Scoring**: Global Hotel Count + Country Hotel Count with adjustable weights")
+    # Enhanced search capabilities info
+    st.info("""
+    🔍 **Enhanced FTS Search Capabilities**:
+    • **Direct Search**: Find cities and areas by name using Full Text Search
+    • **City by Country (FTS)**: Find cities by typing country names (e.g., "France" → Paris)
+    • **Area by City (FTS)**: Find areas by typing city names (e.g., "Paris" → Eiffel Tower)  
+    • **Two-Factor Scoring**: Global Hotel Count + Country Hotel Count with adjustable weights
+    • **Prefix Matching**: "Franc" finds "France", "Par" finds "Paris"
+    """)
     
     # Simplified sidebar header
     st.sidebar.header("⚖️ Factor Weight Configuration")
