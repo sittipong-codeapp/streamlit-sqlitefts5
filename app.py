@@ -557,47 +557,6 @@ def update_weights(dest_type, hotel_count_weight, country_hotel_count_weight):
     conn.close()
     return True
 
-# Function to get database structure information
-def get_database_info():
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    # Get countries
-    cursor.execute('SELECT id, name, total_hotels FROM country ORDER BY name')
-    countries = cursor.fetchall()
-    
-    # Get cities with country names
-    cursor.execute('''
-        SELECT ci.id, ci.name, co.name, ci.total_hotels
-        FROM city ci
-        JOIN country co ON ci.country_id = co.id
-        ORDER BY ci.name
-    ''')
-    cities = cursor.fetchall()
-    
-    # Get areas with city and country names  
-    cursor.execute('''
-        SELECT ar.id, ar.name, ci.name, co.name, ar.total_hotels
-        FROM area ar
-        JOIN city ci ON ar.city_id = ci.id
-        JOIN country co ON ci.country_id = co.id
-        ORDER BY ar.name
-    ''')
-    areas = cursor.fetchall()
-    
-    # Get destination counts by type
-    cursor.execute('SELECT type, COUNT(*) FROM destination GROUP BY type ORDER BY type')
-    destination_counts = cursor.fetchall()
-    
-    conn.close()
-    
-    return {
-        'countries': countries,
-        'cities': cities,
-        'areas': areas,
-        'destination_counts': destination_counts
-    }
-
 # Function to search destinations
 def search_destinations(query):
     conn = get_connection()
@@ -723,27 +682,15 @@ def main():
 
     # Set sidebar to collapsed by default
     st.set_page_config(
-        page_title="Destination Search Sandbox",
+        page_title="Search Suggestion Sandbox",
         initial_sidebar_state="collapsed"
     )
     
     # Web interface
-    st.title("🎯 Destination Search Engine")
-    st.write("**Enhanced FTS Search with Multi-Strategy Support** - Search destinations with flexible query options")
-    
-    # Enhanced search capabilities info
-    st.info("""
-    🔍 **Enhanced FTS Search Capabilities**:
-    • **Direct Search**: Find cities and areas by name using Full Text Search
-    • **City by Country (FTS)**: Find cities by typing country names (e.g., "France" → Paris)
-    • **Area by City (FTS)**: Find areas by typing city names (e.g., "Paris" → Eiffel Tower)  
-    • **Two-Factor Scoring**: Global Hotel Count + Country Hotel Count with adjustable weights
-    • **Prefix Matching**: "Franc" finds "France", "Par" finds "Paris"
-    """)
+    st.title("🔍 Search Suggestion Sandbox")
     
     # Simplified sidebar header
-    st.sidebar.header("⚖️ Factor Weight Configuration")
-    st.sidebar.write("Adjust the importance of each factor for your search preferences")
+    st.sidebar.header("Factor Weight Configuration")
     
     # Get current weights from factor_weights table
     conn = get_connection()
@@ -768,12 +715,9 @@ def main():
     
     # Weight adjustment forms - one for each destination type
     st.sidebar.markdown("""
-    ### 🎯 Two-Factor Scoring System
-    **Adjustable Weight Configuration**
-    
     Customize the importance of each factor for optimal search results:
     - **Global Hotel Normalization**: Compare destinations worldwide
-    - **Country Hotel Normalization**: Fair regional competition
+    - **Country Hotel Normalization**: Compare destinations within the same country
     
     *Adjust weights below to fine-tune your search experience.*
     """)
@@ -785,14 +729,14 @@ def main():
         
         with st.sidebar.form(f"{dest_type}_weight_form"):
             hotel_count_weight = st.slider(
-                f"{dest_type.title()} Global Hotel Count Weight:", 
+                f"Global Hotel Normalization:", 
                 0.0, 1.0, 
                 float(current_weights[dest_type]['hotel_count_weight']), 
                 0.05
             )
             
             country_hotel_count_weight = st.slider(
-                f"{dest_type.title()} Country Hotel Count Weight:", 
+                f"Country Hotel Normalization:", 
                 0.0, 1.0, 
                 float(current_weights[dest_type]['country_hotel_count_weight']), 
                 0.05
@@ -847,87 +791,8 @@ def main():
                 # Group by type and show weights
                 weights_df = df[["Type", "Hotel Count Weight", "Country Hotel Count Weight"]].drop_duplicates()
                 st.dataframe(weights_df)
-                
-                st.markdown("""
-                ### 🎯 Two-Factor Scoring System:
-                **Customizable weights for personalized search results:**
-                
-                - **Global Hotel Count (adjustable weight)**: Compare destinations worldwide
-                  - **Cities**: city.total_hotels / max(city.total_hotels globally) × 100
-                  - **Areas**: area.total_hotels / max(city.total_hotels globally) × 100
-                
-                - **Country Hotel Count (adjustable weight)**: Fair regional competition  
-                  - **Cities**: city.total_hotels / max(city.total_hotels in same country) × 100
-                  - **Areas**: area.total_hotels / max(city.total_hotels in same country) × 100
-                
-                - **Final Score**: (Global Hotel Count × Global Weight) + (Country Hotel Count × Country Weight)
-                
-                ### Weight Configuration Benefits:
-                - **Customizable balance** - adjust global vs regional focus
-                - **Personalized results** - tune weights for your travel preferences
-                - **Fair competition** - areas can compete with cities in their region
-                - **Real-time updates** - changes apply immediately to search results
-                
-                ### Hotel Count Storage:
-                - **Cities**: Hotel count stored directly in city.total_hotels
-                - **Areas**: Hotel count stored directly in area.total_hotels  
-                - **Countries**: Automatically calculated from constituent cities
-                """)
         else:
             st.write("No matching destinations found.")
-    
-    # Database structure section
-    st.sidebar.header("Database Structure")
-    if st.sidebar.button("Show Database Structure"):
-        info = get_database_info()
-        
-        st.subheader("Countries")
-        st.write(info['countries'])
-        
-        st.subheader("Cities (with Countries)")
-        st.write(info['cities'])
-        
-        st.subheader("Areas (with Cities and Countries)")
-        st.write(info['areas'])
-        
-        st.subheader("Destination Counts by Type")
-        st.write(info['destination_counts'])
-    
-    # Add database structure viewer
-    with st.expander("📊 View Database Structure"):
-        db_info = get_database_info()
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.subheader("Countries")
-            if db_info['countries']:
-                countries_df = pd.DataFrame(db_info['countries'], columns=['ID', 'Name', 'Total Hotels'])
-                st.dataframe(countries_df, hide_index=True)
-            else:
-                st.write("No countries found")
-        
-        with col2:
-            st.subheader("Cities")
-            if db_info['cities']:
-                cities_df = pd.DataFrame(db_info['cities'], columns=['ID', 'City', 'Country', 'Total Hotels'])
-                st.dataframe(cities_df, hide_index=True)
-            else:
-                st.write("No cities found")
-        
-        with col3:
-            st.subheader("Areas")
-            if db_info['areas']:
-                areas_df = pd.DataFrame(db_info['areas'], columns=['ID', 'Area', 'City', 'Country', 'Total Hotels'])
-                st.dataframe(areas_df, hide_index=True)
-            else:
-                st.write("No areas found")
-        
-        # Show destination type counts
-        if db_info['destination_counts']:
-            st.subheader("Destination Summary")
-            counts_df = pd.DataFrame(db_info['destination_counts'], columns=['Type', 'Count'])
-            st.dataframe(counts_df, hide_index=True)
 
 if __name__ == "__main__":
     main()
