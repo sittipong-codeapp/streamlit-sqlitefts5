@@ -7,49 +7,49 @@ def init_database():
     conn = sqlite3.connect('destinations.db')
     cursor = conn.cursor()
 
-    # Create the countries table
+    # Create the country table
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS countries (
+        CREATE TABLE IF NOT EXISTS country (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
             total_hotels INTEGER DEFAULT 0
         )
     ''')
     
-    # Create the cities table
+    # Create the city table
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS cities (
+        CREATE TABLE IF NOT EXISTS city (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             country_id INTEGER,
             total_hotels INTEGER DEFAULT 0,
-            FOREIGN KEY (country_id) REFERENCES countries(id)
+            FOREIGN KEY (country_id) REFERENCES country(id)
         )
     ''')
     
-    # Create the areas table
+    # Create the area table
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS areas (
+        CREATE TABLE IF NOT EXISTS area (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             city_id INTEGER,
             total_hotels INTEGER DEFAULT 0,
-            FOREIGN KEY (city_id) REFERENCES cities(id)
+            FOREIGN KEY (city_id) REFERENCES city(id)
         )
     ''')
 
-    # Create the destinations table (now with foreign keys)
+    # Create the destination table (now with foreign keys)
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS destinations (
+        CREATE TABLE IF NOT EXISTS destination (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             country_id INTEGER,
             city_id INTEGER,
             area_id INTEGER,
             type TEXT CHECK(type IN ('city', 'area')),
-            FOREIGN KEY (country_id) REFERENCES countries(id),
-            FOREIGN KEY (city_id) REFERENCES cities(id),
-            FOREIGN KEY (area_id) REFERENCES areas(id)
+            FOREIGN KEY (country_id) REFERENCES country(id),
+            FOREIGN KEY (city_id) REFERENCES city(id),
+            FOREIGN KEY (area_id) REFERENCES area(id)
         )
     ''')
     
@@ -69,17 +69,17 @@ def init_database():
             hotel_count_normalized INTEGER DEFAULT 0,
             country_hotel_count_normalized INTEGER DEFAULT 0,
             total_score INTEGER DEFAULT 0,
-            FOREIGN KEY (destination_id) REFERENCES destinations(id)
+            FOREIGN KEY (destination_id) REFERENCES destination(id)
         )
     ''')
 
     # Create the FTS5 virtual table
     cursor.execute('''
-        CREATE VIRTUAL TABLE IF NOT EXISTS destinations_fts USING fts5(name, content=destinations, content_rowid=id)
+        CREATE VIRTUAL TABLE IF NOT EXISTS destination_fts USING fts5(name, content=destination, content_rowid=id)
     ''')
 
     # Insert sample data if the table is empty
-    cursor.execute('SELECT COUNT(*) FROM destinations')
+    cursor.execute('SELECT COUNT(*) FROM destination')
     if cursor.fetchone()[0] == 0:
         # Insert countries first
         countries_data = [
@@ -88,10 +88,10 @@ def init_database():
             ('United States',),
             ('Japan',)
         ]
-        cursor.executemany('INSERT INTO countries (name) VALUES (?)', countries_data)
+        cursor.executemany('INSERT INTO country (name) VALUES (?)', countries_data)
         
         # Get country IDs for reference
-        cursor.execute('SELECT id, name FROM countries')
+        cursor.execute('SELECT id, name FROM country')
         country_map = {name: id for id, name in cursor.fetchall()}
         
         # Insert cities
@@ -101,10 +101,10 @@ def init_database():
             ('New York', country_map['United States']),
             ('Tokyo', country_map['Japan'])
         ]
-        cursor.executemany('INSERT INTO cities (name, country_id) VALUES (?, ?)', cities_data)
+        cursor.executemany('INSERT INTO city (name, country_id) VALUES (?, ?)', cities_data)
         
         # Get city IDs for reference
-        cursor.execute('SELECT id, name FROM cities')
+        cursor.execute('SELECT id, name FROM city')
         city_map = {name: id for id, name in cursor.fetchall()}
         
         # Insert areas
@@ -114,10 +114,10 @@ def init_database():
             ('Central Park', city_map['New York']),
             ('Shibuya Crossing', city_map['Tokyo'])
         ]
-        cursor.executemany('INSERT INTO areas (name, city_id) VALUES (?, ?)', areas_data)
+        cursor.executemany('INSERT INTO area (name, city_id) VALUES (?, ?)', areas_data)
         
         # Get area IDs for reference
-        cursor.execute('SELECT id, name FROM areas')
+        cursor.execute('SELECT id, name FROM area')
         area_map = {name: id for id, name in cursor.fetchall()}
         
         # Insert destinations (both cities and areas)
@@ -133,10 +133,10 @@ def init_database():
             ('Central Park', country_map['United States'], city_map['New York'], area_map['Central Park'], 'area'),
             ('Shibuya Crossing', country_map['Japan'], city_map['Tokyo'], area_map['Shibuya Crossing'], 'area')
         ]
-        cursor.executemany('INSERT INTO destinations (name, country_id, city_id, area_id, type) VALUES (?, ?, ?, ?, ?)', destinations_data)
+        cursor.executemany('INSERT INTO destination (name, country_id, city_id, area_id, type) VALUES (?, ?, ?, ?, ?)', destinations_data)
         
         # Insert into FTS table
-        cursor.execute('INSERT INTO destinations_fts (rowid, name) SELECT id, name FROM destinations')
+        cursor.execute('INSERT INTO destination_fts (rowid, name) SELECT id, name FROM destination')
         
         # Define hotel counts for locations
         city_hotel_counts = {
@@ -153,21 +153,21 @@ def init_database():
             'Shibuya Crossing': 25
         }
         
-        # Update cities with total_hotels
+        # Update city with total_hotels
         for city_name, hotel_count in city_hotel_counts.items():
-            cursor.execute('UPDATE cities SET total_hotels = ? WHERE name = ?', (hotel_count, city_name))
+            cursor.execute('UPDATE city SET total_hotels = ? WHERE name = ?', (hotel_count, city_name))
         
-        # Update areas with total_hotels
+        # Update area with total_hotels
         for area_name, hotel_count in area_hotel_counts.items():
-            cursor.execute('UPDATE areas SET total_hotels = ? WHERE name = ?', (hotel_count, area_name))
+            cursor.execute('UPDATE area SET total_hotels = ? WHERE name = ?', (hotel_count, area_name))
         
-        # Update countries with aggregated hotel counts from their cities
+        # Update country with aggregated hotel counts from their cities
         cursor.execute('''
-            UPDATE countries 
+            UPDATE country 
             SET total_hotels = (
-                SELECT COALESCE(SUM(cities.total_hotels), 0)
-                FROM cities 
-                WHERE cities.country_id = countries.id
+                SELECT COALESCE(SUM(city.total_hotels), 0)
+                FROM city 
+                WHERE city.country_id = country.id
             )
         ''')
         
@@ -186,14 +186,14 @@ def init_database():
         
         # Calculate normalized hotel counts and scores
         # First, get the maximum city hotel count for normalization
-        cursor.execute('SELECT MAX(total_hotels) FROM cities')
+        cursor.execute('SELECT MAX(total_hotels) FROM city')
         max_city_hotels = cursor.fetchone()[0] or 1  # Avoid division by zero
         
         # Create scores with normalized hotel counts from location tables
         scores = []
         
         # Get all destinations for scoring
-        cursor.execute('SELECT id, type, country_id FROM destinations')
+        cursor.execute('SELECT id, type, country_id FROM destination')
         destinations = cursor.fetchall()
         
         for dest_id, dest_type, country_id in destinations:
@@ -201,8 +201,8 @@ def init_database():
             if dest_type == 'city':
                 cursor.execute('''
                     SELECT ci.total_hotels 
-                    FROM destinations d 
-                    JOIN cities ci ON d.city_id = ci.id 
+                    FROM destination d 
+                    JOIN city ci ON d.city_id = ci.id 
                     WHERE d.id = ?
                 ''', (dest_id,))
                 hotel_count = cursor.fetchone()[0] or 0
@@ -212,7 +212,7 @@ def init_database():
                 # Get max hotel count within the same country for country normalization
                 cursor.execute('''
                     SELECT MAX(ci.total_hotels) 
-                    FROM cities ci 
+                    FROM city ci 
                     WHERE ci.country_id = ?
                 ''', (country_id,))
                 max_country_city_hotels = cursor.fetchone()[0] or 1
@@ -220,8 +220,8 @@ def init_database():
             else:  # area
                 cursor.execute('''
                     SELECT ar.total_hotels 
-                    FROM destinations d 
-                    JOIN areas ar ON d.area_id = ar.id 
+                    FROM destination d 
+                    JOIN area ar ON d.area_id = ar.id 
                     WHERE d.id = ?
                 ''', (dest_id,))
                 hotel_count = cursor.fetchone()[0] or 0
@@ -231,7 +231,7 @@ def init_database():
                 # Get max hotel count within the same country for country normalization
                 cursor.execute('''
                     SELECT MAX(ci.total_hotels) 
-                    FROM cities ci 
+                    FROM city ci 
                     WHERE ci.country_id = ?
                 ''', (country_id,))
                 max_country_city_hotels = cursor.fetchone()[0] or 1
@@ -295,18 +295,18 @@ def update_weights(dest_type, hotel_count_weight, country_hotel_count_weight):
     ''', (hotel_count_weight, country_hotel_count_weight, dest_type))
     
     # Get max city hotel count for normalization
-    cursor.execute('SELECT MAX(total_hotels) FROM cities')
+    cursor.execute('SELECT MAX(total_hotels) FROM city')
     max_city_hotels = cursor.fetchone()[0] or 1
     
     # For each destination of the specified type, recalculate the score
-    cursor.execute('SELECT id FROM destinations WHERE type = ?', (dest_type,))
+    cursor.execute('SELECT id FROM destination WHERE type = ?', (dest_type,))
     dest_ids = [row[0] for row in cursor.fetchall()]
     
     for dest_id in dest_ids:
         # Get country
         cursor.execute('''
             SELECT d.country_id 
-            FROM destinations d 
+            FROM destination d 
             WHERE d.id = ?
         ''', (dest_id,))
         country_id = cursor.fetchone()[0]
@@ -315,8 +315,8 @@ def update_weights(dest_type, hotel_count_weight, country_hotel_count_weight):
         if dest_type == 'city':
             cursor.execute('''
                 SELECT ci.total_hotels 
-                FROM destinations d 
-                JOIN cities ci ON d.city_id = ci.id 
+                FROM destination d 
+                JOIN city ci ON d.city_id = ci.id 
                 WHERE d.id = ?
             ''', (dest_id,))
             hotel_count = cursor.fetchone()[0] or 0
@@ -324,15 +324,15 @@ def update_weights(dest_type, hotel_count_weight, country_hotel_count_weight):
             # Get max hotel count within the same country
             cursor.execute('''
                 SELECT MAX(ci.total_hotels) 
-                FROM cities ci 
+                FROM city ci 
                 WHERE ci.country_id = ?
             ''', (country_id,))
             max_country_city_hotels = cursor.fetchone()[0] or 1
         else:  # area
             cursor.execute('''
                 SELECT ar.total_hotels 
-                FROM destinations d 
-                JOIN areas ar ON d.area_id = ar.id 
+                FROM destination d 
+                JOIN area ar ON d.area_id = ar.id 
                 WHERE d.id = ?
             ''', (dest_id,))
             hotel_count = cursor.fetchone()[0] or 0
@@ -340,7 +340,7 @@ def update_weights(dest_type, hotel_count_weight, country_hotel_count_weight):
             # Get max hotel count within the same country
             cursor.execute('''
                 SELECT MAX(ci.total_hotels) 
-                FROM cities ci 
+                FROM city ci 
                 WHERE ci.country_id = ?
             ''', (country_id,))
             max_country_city_hotels = cursor.fetchone()[0] or 1
@@ -371,14 +371,14 @@ def get_database_info():
     cursor = conn.cursor()
     
     # Get countries
-    cursor.execute('SELECT id, name, total_hotels FROM countries ORDER BY name')
+    cursor.execute('SELECT id, name, total_hotels FROM country ORDER BY name')
     countries = cursor.fetchall()
     
     # Get cities with country names
     cursor.execute('''
         SELECT ci.id, ci.name, co.name, ci.total_hotels
-        FROM cities ci
-        JOIN countries co ON ci.country_id = co.id
+        FROM city ci
+        JOIN country co ON ci.country_id = co.id
         ORDER BY ci.name
     ''')
     cities = cursor.fetchall()
@@ -386,15 +386,15 @@ def get_database_info():
     # Get areas with city and country names  
     cursor.execute('''
         SELECT ar.id, ar.name, ci.name, co.name, ar.total_hotels
-        FROM areas ar
-        JOIN cities ci ON ar.city_id = ci.id
-        JOIN countries co ON ci.country_id = co.id
+        FROM area ar
+        JOIN city ci ON ar.city_id = ci.id
+        JOIN country co ON ci.country_id = co.id
         ORDER BY ar.name
     ''')
     areas = cursor.fetchall()
     
     # Get destination counts by type
-    cursor.execute('SELECT type, COUNT(*) FROM destinations GROUP BY type ORDER BY type')
+    cursor.execute('SELECT type, COUNT(*) FROM destination GROUP BY type ORDER BY type')
     destination_counts = cursor.fetchall()
     
     conn.close()
@@ -429,11 +429,11 @@ def search_destinations(query):
             w.hotel_count_weight,
             w.country_hotel_count_weight,
             co.total_hotels as country_total_hotels
-        FROM destinations d
-        JOIN destinations_fts fts ON d.id = fts.rowid
-        LEFT JOIN countries co ON d.country_id = co.id
-        LEFT JOIN cities ci ON d.city_id = ci.id
-        LEFT JOIN areas ar ON d.area_id = ar.id
+        FROM destination d
+        JOIN destination_fts fts ON d.id = fts.rowid
+        LEFT JOIN country co ON d.country_id = co.id
+        LEFT JOIN city ci ON d.city_id = ci.id
+        LEFT JOIN area ar ON d.area_id = ar.id
         LEFT JOIN destination_score s ON d.id = s.destination_id
         LEFT JOIN factor_weights w ON d.type = w.type
         WHERE fts.name MATCH ?
@@ -580,8 +580,8 @@ def main():
                 - **Real-time updates** - changes apply immediately to search results
                 
                 ### Hotel Count Storage:
-                - **Cities**: Hotel count stored directly in cities.total_hotels
-                - **Areas**: Hotel count stored directly in areas.total_hotels  
+                - **Cities**: Hotel count stored directly in city.total_hotels
+                - **Areas**: Hotel count stored directly in area.total_hotels  
                 - **Countries**: Automatically calculated from constituent cities
                 """)
         else:
