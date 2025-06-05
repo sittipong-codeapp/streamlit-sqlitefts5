@@ -569,6 +569,7 @@ def search_destinations(query):
     # 3. Cities by country name match (FTS search on country names)
     # 4. Areas by city name match (FTS search on city names)
     cursor.execute('''
+        -- direct_city
         SELECT DISTINCT
             'city' as type,
             ci.name, 
@@ -581,8 +582,7 @@ def search_destinations(query):
             s.total_score,
             w.hotel_count_weight,
             w.country_hotel_count_weight,
-            co.total_hotels as country_total_hotels,
-            'direct_city' as match_type
+            co.total_hotels as country_total_hotels
         FROM city ci
         JOIN city_fts fts ON ci.id = fts.rowid
         LEFT JOIN country co ON ci.country_id = co.id
@@ -593,6 +593,7 @@ def search_destinations(query):
         
         UNION
         
+        -- direct_area
         SELECT DISTINCT
             'area' as type,
             ar.name, 
@@ -605,8 +606,7 @@ def search_destinations(query):
             s.total_score,
             w.hotel_count_weight,
             w.country_hotel_count_weight,
-            co.total_hotels as country_total_hotels,
-            'direct_area' as match_type
+            co.total_hotels as country_total_hotels
         FROM area ar
         JOIN area_fts fts ON ar.id = fts.rowid
         LEFT JOIN city ci ON ar.city_id = ci.id
@@ -618,6 +618,7 @@ def search_destinations(query):
         
         UNION
         
+        -- city_by_country_fts
         SELECT DISTINCT
             'city' as type,
             ci.name, 
@@ -630,8 +631,7 @@ def search_destinations(query):
             s.total_score,
             w.hotel_count_weight,
             w.country_hotel_count_weight,
-            co.total_hotels as country_total_hotels,
-            'city_by_country_fts' as match_type
+            co.total_hotels as country_total_hotels
         FROM city ci
         LEFT JOIN country co ON ci.country_id = co.id
         JOIN country_fts country_fts ON co.id = country_fts.rowid
@@ -642,6 +642,7 @@ def search_destinations(query):
         
         UNION
         
+        -- area_by_city_fts
         SELECT DISTINCT
             'area' as type,
             ar.name, 
@@ -654,8 +655,7 @@ def search_destinations(query):
             s.total_score,
             w.hotel_count_weight,
             w.country_hotel_count_weight,
-            co.total_hotels as country_total_hotels,
-            'area_by_city_fts' as match_type
+            co.total_hotels as country_total_hotels
         FROM area ar
         LEFT JOIN city ci ON ar.city_id = ci.id
         JOIN city_fts city_fts ON ci.id = city_fts.rowid
@@ -671,7 +671,6 @@ def search_destinations(query):
     
     # Remove the match_type column from results before returning
     results = cursor.fetchall()
-    results = [row[:-1] for row in results]  # Remove last column (match_type)
     conn.close()
     return results
 
