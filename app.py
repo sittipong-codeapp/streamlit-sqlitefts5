@@ -176,7 +176,7 @@ def init_database():
             destination_id INTEGER PRIMARY KEY,
             hotel_count_normalized INTEGER DEFAULT 0,
             country_hotel_count_normalized INTEGER DEFAULT 0,
-            total_score INTEGER DEFAULT 0,
+            total_score REAL DEFAULT 0,
             FOREIGN KEY (destination_id) REFERENCES destination(id)
         )
     ''')
@@ -343,9 +343,9 @@ def init_database():
         
         # Set default weights with two-factor weighting (no rating)
         city_hotel_count_weight = 0.8  # Global hotel count weight for cities
-        city_country_hotel_count_weight = 0.5  # Country hotel count weight for cities
-        area_hotel_count_weight = 0.8  # Global hotel count weight for areas
-        area_country_hotel_count_weight = 0.5  # Country hotel count weight for areas
+        city_country_hotel_count_weight = 0.05  # Country hotel count weight for cities
+        area_hotel_count_weight = 0.4  # Global hotel count weight for areas
+        area_country_hotel_count_weight = 0.05  # Country hotel count weight for areas
         
         # Insert default factor weights (removed rating)
         default_weights = [
@@ -389,7 +389,7 @@ def init_database():
                 ''', (country_id,))
                 result = cursor.fetchone()
                 max_country_city_hotels = result[0] if result and result[0] else 1
-                country_hotel_count_normalized = int((hotel_count / max_country_city_hotels) * 100)
+                country_hotel_count_normalized = int((hotel_count / max_country_city_hotels) * 100) if max_country_city_hotels > 200 else 0
             else:  # area
                 cursor.execute('''
                     SELECT ar.total_hotels 
@@ -410,7 +410,7 @@ def init_database():
                 ''', (country_id,))
                 result = cursor.fetchone()
                 max_country_city_hotels = result[0] if result and result[0] else 1
-                country_hotel_count_normalized = int((hotel_count / max_country_city_hotels) * 100)
+                country_hotel_count_normalized = int((hotel_count / max_country_city_hotels) * 100) if max_country_city_hotels > 200 else 0
             
             # Get weights for this destination type
             if dest_type == 'city':
@@ -422,8 +422,12 @@ def init_database():
             
             # Calculate weighted total score with two factors (no rating)
             weighted_sum = (hotel_count_normalized * hotel_count_weight) + (country_hotel_count_normalized * country_hotel_count_weight)
-            weights_sum = hotel_count_weight + country_hotel_count_weight
-            total_score = int(weighted_sum / weights_sum) if weights_sum > 0 else 0
+            factor_count = 2
+            
+            # Boost score for Thailand
+            boost_up = 3 * factor_count if country_id == 106 else 1
+            
+            total_score = weighted_sum * boost_up / factor_count if factor_count > 0 else 0
             
             scores.append((
                 dest_id, 
@@ -531,12 +535,16 @@ def update_weights(dest_type, hotel_count_weight, country_hotel_count_weight):
         
         # Normalize hotel counts - global and country level
         hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
-        country_hotel_count_normalized = int((hotel_count / max_country_city_hotels) * 100)
+        country_hotel_count_normalized = int((hotel_count / max_country_city_hotels) * 100) if max_country_city_hotels > 200 else 0
         
         # Calculate weighted total score with two factors (no rating)
         weighted_sum = (hotel_count_normalized * hotel_count_weight) + (country_hotel_count_normalized * country_hotel_count_weight)
-        weights_sum = hotel_count_weight + country_hotel_count_weight
-        total_score = int(weighted_sum / weights_sum) if weights_sum > 0 else 0
+        factor_count = 2
+        
+        # Boost score for Thailand
+        boost_up = 3 * factor_count if country_id == 106 else 1
+        
+        total_score = weighted_sum * boost_up / factor_count if factor_count > 0 else 0
         
         # Update the score
         cursor.execute('''
@@ -698,7 +706,7 @@ def search_destinations(query):
         LEFT JOIN factor_weights w ON w.type = 'area'
         WHERE city_fts.name MATCH ?
         
-        ORDER BY total_score DESC
+        ORDER BY total_score DESC, hotel_count DESC
         LIMIT 20
     ''', (match_pattern, match_pattern, match_pattern, match_pattern))
     
@@ -794,8 +802,6 @@ def main():
             weight_sum = hotel_count_weight + country_hotel_count_weight
             if weight_sum > 0:
                 st.write(f"Weight Sum: {weight_sum:.2f}")
-                if weight_sum != 1.0:
-                    st.warning("💡 Weights don't sum to 1.0 - will be normalized automatically")
             
             submit_weights = st.form_submit_button(f"Update {dest_type.title()} Weights")
             
@@ -814,15 +820,27 @@ def main():
             df = pd.DataFrame(results, columns=[
                 "Type", "Name", "Country", "City", "Area",
                 "Hotel Count", 
-                "Hotel Count (Normalized)", "Country Hotel Count (Normalized)",
+                "Normalized: Global Hotel Count", "Normalized: Country Hotel Count",
                 "Total Score", "Hotel Count Weight", "Country Hotel Count Weight", "Country Total Hotels"
             ])
+            
+            # Create a display name column that formats differently based on type
+            df["Display Name"] = df.apply(
+                lambda row: f"{row['Name']}, {row['City']}" if row["Type"] == "area" else row["Name"], 
+                axis=1
+            )
             
             st.write(f"Found {len(results)} matching destinations:")
             
             # Show results with location hierarchy
-            display_df = df[["Name", "Type", "Country", "City", "Area", "Total Score", "Hotel Count (Normalized)", "Country Hotel Count (Normalized)", "Hotel Count", "Country Total Hotels"]]
-            st.dataframe(display_df)
+            display_df = df[["Display Name", "Type", "Country", "Total Score", "Normalized: Global Hotel Count", "Normalized: Country Hotel Count", "Hotel Count", "Country Total Hotels"]]
+            st.dataframe(
+                display_df,
+                column_config={
+                    "Display Name": st.column_config.TextColumn(width="medium"),
+                    "Total Score": st.column_config.NumberColumn(format="%.2f"),
+                },
+            )
             
             # Show factor weights explanation
             with st.expander("View Factor Weights for Results"):
