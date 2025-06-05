@@ -211,17 +211,31 @@ def init_database():
     # Insert data from CSV files if the table is empty
     cursor.execute('SELECT COUNT(*) FROM destination')
     if cursor.fetchone()[0] == 0:
-        st.write("Loading data from CSV files...") if 'st' in globals() else print("Loading data from CSV files...")
+        # Create a placeholder for status message
+        loading_placeholder = None
+        if 'st' in globals():
+            loading_placeholder = st.empty()
+            loading_placeholder.write("Loading data from CSV files...")
+        else:
+            print("Loading data from CSV files...")
         
         # Load data from CSV files
         try:
             countries_data, cities_data, areas_data, destinations_data = load_csv_data()
         except Exception as e:
-            st.error(f"Error loading CSV data: {e}") if 'st' in globals() else print(f"Error loading CSV data: {e}")
+            error_msg = f"Error loading CSV data: {e}"
+            if 'st' in globals() and loading_placeholder:
+                loading_placeholder.error(error_msg)
+            else:
+                print(error_msg)
             countries_data, cities_data, areas_data, destinations_data = {}, {}, {}, []
         
         if not countries_data:
-            st.write("No country data found, using sample data...") if 'st' in globals() else print("No country data found, using sample data...")
+            sample_msg = "No country data found, using sample data..."
+            if 'st' in globals() and loading_placeholder:
+                loading_placeholder.write(sample_msg)
+            else:
+                print(sample_msg)
             # Fallback to sample data if CSV files are not available
             countries_data = {
                 1: {'name': 'France', 'total_hotels': 0},
@@ -242,8 +256,11 @@ def init_database():
                 4: {'name': 'Shibuya Crossing', 'city_id': 4, 'total_hotels': 25}
             }
         else:
-            msg = f"Loaded {len(countries_data)} countries, {len(cities_data)} cities, {len(areas_data)} areas, {len(destinations_data)} destinations"
-            st.success(msg) if 'st' in globals() else print(msg)
+            success_msg = f"Loaded {len(countries_data)} countries, {len(cities_data)} cities, {len(areas_data)} areas, {len(destinations_data)} destinations"
+            if 'st' in globals() and loading_placeholder:
+                loading_placeholder.success(success_msg)
+            else:
+                print(success_msg)
         
         # Insert countries
         for country_id, country_info in countries_data.items():
@@ -456,6 +473,10 @@ def init_database():
                 destination_id, hotel_count_normalized, country_hotel_count_normalized, total_score
             ) VALUES (?, ?, ?, ?)
         ''', scores)
+
+        # Clear the loading message after loading is complete
+        if 'st' in globals() and loading_placeholder:
+            loading_placeholder.empty()
 
     conn.commit()
     conn.close()
