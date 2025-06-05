@@ -180,6 +180,20 @@ def init_database():
             FOREIGN KEY (destination_id) REFERENCES destination(id)
         )
     ''')
+    
+    # Create index on total_score for faster sorting in search results
+    cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_destination_score_total_score 
+        ON destination_score(total_score DESC)
+    ''')
+    
+    # Create necessary indexes if they don't exist
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_city_country_id ON city(country_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_area_city_id ON area(city_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_destination_city_id ON destination(city_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_destination_area_id ON destination(area_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_destination_country_id ON destination(country_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_destination_type ON destination(type)')
 
     # Create separate FTS5 virtual tables for countries, cities and areas
     cursor.execute('''
