@@ -690,14 +690,14 @@ def search_destinations(query):
 
 # Streamlit app
 def main():
-    # Initialize the database
-    init_database()
-
     # Set sidebar to collapsed by default
     st.set_page_config(
         page_title="Search Suggestion Sandbox",
         initial_sidebar_state="collapsed"
     )
+
+    # Initialize the database
+    init_database()
     
     # Web interface
     st.title("🔍 Search Suggestion Sandbox")
@@ -803,7 +803,10 @@ def main():
             with st.expander("View Factor Weights for Results"):
                 # Group by type and show weights
                 weights_df = df[["Type", "Hotel Count Weight", "Country Hotel Count Weight"]].drop_duplicates()
-                st.dataframe(weights_df)
+                st.dataframe(
+                    weights_df,
+                    hide_index=True,
+                )
         else:
             st.write("No matching destinations found.")
 
