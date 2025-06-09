@@ -22,84 +22,142 @@ def main():
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT type, hotel_count_weight, country_hotel_count_weight FROM factor_weights"
+        "SELECT type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight FROM factor_weights"
     )
     weights_data = cursor.fetchall()
     conn.close()
 
     # Create dictionary of current weights by destination type
     current_weights = {}
-    for dest_type, hotel_count_weight, country_hotel_count_weight in weights_data:
+    for row in weights_data:
+        dest_type = row[0]
         current_weights[dest_type] = {
-            "hotel_count_weight": hotel_count_weight,
-            "country_hotel_count_weight": country_hotel_count_weight,
+            "hotel_count_weight": row[1],
+            "country_hotel_count_weight": row[2],
+            "agoda_score_weight": row[3] if len(row) > 3 else 0,
+            "google_score_weight": row[4] if len(row) > 4 else 0,
         }
 
-    # Default values if no weights found (two-factor system)
+    # Default values if no weights found
     if "city" not in current_weights:
         current_weights["city"] = {
             "hotel_count_weight": 0.5,
             "country_hotel_count_weight": 0.5,
+            "agoda_score_weight": 0,
+            "google_score_weight": 0,
         }
     if "area" not in current_weights:
         current_weights["area"] = {
             "hotel_count_weight": 0.5,
             "country_hotel_count_weight": 0.5,
+            "agoda_score_weight": 0,
+            "google_score_weight": 0,
+        }
+    if "hotel" not in current_weights:
+        current_weights["hotel"] = {
+            "hotel_count_weight": 0,
+            "country_hotel_count_weight": 0,
+            "agoda_score_weight": 0.6,
+            "google_score_weight": 0.4,
         }
 
     # Weight adjustment forms - one for each destination type
     st.sidebar.markdown(
         """
     Customize the importance of each factor for optimal search results:
-    - **Global Hotel Normalization**: Compare destinations worldwide
-    - **Country Hotel Normalization**: Compare destinations within the same country
+    - **Cities & Areas**: Hotel count normalization factors
+    - **Hotels**: Review score factors (Agoda vs Google)
     
     *Adjust weights below to fine-tune your search experience.*
     """
     )
 
-    dest_types = ["city", "area"]
+    dest_types = ["city", "area", "hotel"]
 
     for dest_type in dest_types:
         st.sidebar.subheader(f"{dest_type.title()} Factor Weights")
 
         with st.sidebar.form(f"{dest_type}_weight_form"):
-            hotel_count_weight = st.slider(
-                f"Global Hotel Normalization:",
-                0.0,
-                1.0,
-                float(current_weights[dest_type]["hotel_count_weight"]),
-                0.05,
-            )
+            if dest_type == "hotel":
+                # Hotel-specific weights (Agoda and Google scores)
+                agoda_score_weight = st.slider(
+                    f"Agoda Score Weight:",
+                    0.0,
+                    1.0,
+                    float(current_weights[dest_type]["agoda_score_weight"]),
+                    0.05,
+                )
 
-            country_hotel_count_weight = st.slider(
-                f"Country Hotel Normalization:",
-                0.0,
-                1.0,
-                float(current_weights[dest_type]["country_hotel_count_weight"]),
-                0.05,
-            )
+                google_score_weight = st.slider(
+                    f"Google Score Weight:",
+                    0.0,
+                    1.0,
+                    float(current_weights[dest_type]["google_score_weight"]),
+                    0.05,
+                )
 
-            # Show weight sum for validation
-            weight_sum = hotel_count_weight + country_hotel_count_weight
-            if weight_sum > 0:
-                st.write(f"Weight Sum: {weight_sum:.2f}")
+                # Show weight sum for validation
+                weight_sum = agoda_score_weight + google_score_weight
+                if weight_sum > 0:
+                    st.write(f"Weight Sum: {weight_sum:.2f}")
 
-            submit_weights = st.form_submit_button(
-                f"Update {dest_type.title()} Weights"
-            )
+                submit_weights = st.form_submit_button(
+                    f"Update {dest_type.title()} Weights"
+                )
 
-            if submit_weights:
-                if update_weights(
-                    dest_type, hotel_count_weight, country_hotel_count_weight
-                ):
-                    st.sidebar.success(
-                        f"{dest_type.title()} weights updated successfully!"
-                    )
-                else:
-                    st.sidebar.error(
-                        f"Failed to update {dest_type.title()} weights. Make sure values are between 0 and 1."
-                    )
+                if submit_weights:
+                    if update_weights(
+                        dest_type, 
+                        agoda_score_weight=agoda_score_weight, 
+                        google_score_weight=google_score_weight
+                    ):
+                        st.sidebar.success(
+                            f"{dest_type.title()} weights updated successfully!"
+                        )
+                    else:
+                        st.sidebar.error(
+                            f"Failed to update {dest_type.title()} weights. Make sure values are between 0 and 1."
+                        )
+            else:
+                # City/Area weights (hotel count normalization)
+                hotel_count_weight = st.slider(
+                    f"Global Hotel Normalization:",
+                    0.0,
+                    1.0,
+                    float(current_weights[dest_type]["hotel_count_weight"]),
+                    0.05,
+                )
+
+                country_hotel_count_weight = st.slider(
+                    f"Country Hotel Normalization:",
+                    0.0,
+                    1.0,
+                    float(current_weights[dest_type]["country_hotel_count_weight"]),
+                    0.05,
+                )
+
+                # Show weight sum for validation
+                weight_sum = hotel_count_weight + country_hotel_count_weight
+                if weight_sum > 0:
+                    st.write(f"Weight Sum: {weight_sum:.2f}")
+
+                submit_weights = st.form_submit_button(
+                    f"Update {dest_type.title()} Weights"
+                )
+
+                if submit_weights:
+                    if update_weights(
+                        dest_type, 
+                        hotel_count_weight=hotel_count_weight, 
+                        country_hotel_count_weight=country_hotel_count_weight
+                    ):
+                        st.sidebar.success(
+                            f"{dest_type.title()} weights updated successfully!"
+                        )
+                    else:
+                        st.sidebar.error(
+                            f"Failed to update {dest_type.title()} weights. Make sure values are between 0 and 1."
+                        )
 
     # Search section
     query = st.text_input("Search for a destination:")
@@ -116,11 +174,11 @@ def main():
                     "City",
                     "Area",
                     "Hotel Count",
-                    "Normalized: Global Hotel Count",
-                    "Normalized: Country Hotel Count",
+                    "Normalized: Factor 1",  # For cities/areas: Global Hotel Count, For hotels: Agoda Score
+                    "Normalized: Factor 2",  # For cities/areas: Country Hotel Count, For hotels: Google Score
                     "Total Score",
-                    "Hotel Count Weight",
-                    "Country Hotel Count Weight",
+                    "Factor 1 Weight",      # For cities/areas: Hotel Count Weight, For hotels: Agoda Score Weight
+                    "Factor 2 Weight",      # For cities/areas: Country Hotel Count Weight, For hotels: Google Score Weight
                     "Country Total Hotels",
                 ],
             )
@@ -144,8 +202,8 @@ def main():
                     "Type",
                     "Country",
                     "Total Score",
-                    "Normalized: Global Hotel Count",
-                    "Normalized: Country Hotel Count",
+                    "Normalized: Factor 1",
+                    "Normalized: Factor 2",
                     "Hotel Count",
                     "Country Total Hotels",
                 ]
@@ -160,14 +218,29 @@ def main():
 
             # Show factor weights explanation
             with st.expander("View Factor Weights for Results"):
-                # Group by type and show weights
+                # Group by type and show weights with appropriate labels
                 weights_df = df[
-                    ["Type", "Hotel Count Weight", "Country Hotel Count Weight"]
+                    ["Type", "Factor 1 Weight", "Factor 2 Weight"]
                 ].drop_duplicates()
-                st.dataframe(
-                    weights_df,
-                    hide_index=True,
-                )
+                
+                # Add meaningful column names based on type
+                weights_display = []
+                for _, row in weights_df.iterrows():
+                    if row["Type"] == "hotel":
+                        weights_display.append({
+                            "Type": row["Type"],
+                            "Factor 1 (Agoda Score)": row["Factor 1 Weight"],
+                            "Factor 2 (Google Score)": row["Factor 2 Weight"]
+                        })
+                    else:
+                        weights_display.append({
+                            "Type": row["Type"],
+                            "Factor 1 (Global Hotel Count)": row["Factor 1 Weight"],
+                            "Factor 2 (Country Hotel Count)": row["Factor 2 Weight"]
+                        })
+                
+                weights_display_df = pd.DataFrame(weights_display)
+                st.dataframe(weights_display_df, hide_index=True)
         else:
             st.write("No matching destinations found.")
 
