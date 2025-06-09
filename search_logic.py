@@ -1,3 +1,6 @@
+from database import get_connection
+
+
 # Function to update factor weights and recalculate total score
 def update_weights(dest_type, hotel_count_weight, country_hotel_count_weight):
     conn = get_connection()
@@ -112,11 +115,18 @@ def update_weights(dest_type, hotel_count_weight, country_hotel_count_weight):
             country_hotel_count_normalized * country_hotel_count_weight
         )
         factor_count = 2
+        cursor.execute(
+            """
+        SELECT max(hotel_count_weight) + max(country_hotel_count_weight) as max_weight_sum
+        FROM factor_weights
+        """
+        )
+        factor_sum = cursor.fetchone()[0]
 
         # Boost score for Thailand
         boost_up = 3 * factor_count if country_id == 106 else 1
 
-        total_score = weighted_sum * boost_up / factor_count if factor_count > 0 else 0
+        total_score = weighted_sum * boost_up / factor_sum if factor_sum > 0 else 0
 
         # Update the score
         cursor.execute(
