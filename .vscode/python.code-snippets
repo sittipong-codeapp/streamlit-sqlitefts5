@@ -1,0 +1,74 @@
+{
+    "SQL Execute Single Line": {
+        "scope": "python",
+        "prefix": "sexec",
+        "body": [
+            "cursor.execute('''",
+            "    $1",
+            "''', ($2))"
+        ],
+        "description": "Single-line SQL execute statement with single quotes"
+    },
+    "SQL Execute Single Line Simple": {
+        "scope": "python",
+        "prefix": "se",
+        "body": [
+            "cursor.execute('''$1''', ($2))"
+        ],
+        "description": "Simple single-line SQL execute"
+    },
+    "SQL Execute No Parameters": {
+        "scope": "python",
+        "prefix": "senoparams",
+        "body": [
+            "cursor.execute('''",
+            "    $1",
+            "''')"
+        ],
+        "description": "SQL execute without parameters"
+    },
+    "SQL Execute Multiline Formatted": {
+        "scope": "python",
+        "prefix": "semulti",
+        "body": [
+            "cursor.execute('''",
+            "    ${1:SELECT * FROM table}",
+            "    ${2:WHERE condition = ?}",
+            "''', (${3:parameter}))"
+        ],
+        "description": "Multi-line SQL execute with proper formatting"
+    },
+    "SQL Fetchone": {
+        "scope": "python",
+        "prefix": "fetchone",
+        "body": [
+            "cursor.execute('''$1''', ($2))",
+            "result = cursor.fetchone()",
+            "${3:value} = result[0] if result else ${4:None}"
+        ],
+        "description": "SQL execute with fetchone pattern"
+    },
+    "SQL Fetchall": {
+        "scope": "python",
+        "prefix": "fetchall",
+        "body": [
+            "cursor.execute('''$1''', ($2))",
+            "results = cursor.fetchall()"
+        ],
+        "description": "SQL execute with fetchall"
+    },
+    "SQLite Connection Pattern": {
+        "scope": "python",
+        "prefix": "sqlconn",
+        "body": [
+            "conn = get_connection()",
+            "cursor = conn.cursor()",
+            "",
+            "cursor.execute('''$1''', ($2))",
+            "",
+            "conn.commit()",
+            "conn.close()"
+        ],
+        "description": "Complete SQLite connection pattern"
+    }
+}

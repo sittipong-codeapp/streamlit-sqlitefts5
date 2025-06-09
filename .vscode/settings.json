@@ -1,0 +1,109 @@
+{
+    // Completely disable all Python formatting
+    "python.formatting.provider": "none",
+    
+    // Editor settings - disable all auto-formatting
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.detectIndentation": false,
+    "editor.formatOnSave": true,
+    "editor.formatOnPaste": false,
+    "editor.formatOnType": false,
+    "editor.autoIndent": "none",
+    "editor.rulers": [88, 120],
+    "editor.wordWrap": "wordWrapColumn",
+    "editor.wordWrapColumn": 120,
+    
+    // Disable all code actions on save
+    "editor.codeActionsOnSave": {},
+    
+    // Python linting settings - minimal warnings only
+    "python.linting.enabled": false,
+    "python.linting.pylintEnabled": false,
+    "python.linting.flake8Enabled": false,
+    "python.linting.mypyEnabled": false,
+    "python.linting.banditEnabled": false,
+    "python.linting.prospectorEnabled": false,
+    "python.linting.pydocstyleEnabled": false,
+    "python.linting.pylamaEnabled": false,
+    
+    // Disable Python extension auto-formatting features
+    "python.formatting.blackPath": "",
+    "python.formatting.autopep8Path": "",
+    "python.formatting.yapfPath": "",
+    
+    // File associations
+    "files.associations": {
+        "*.sql": "sql",
+        "*.py": "python"
+    },
+    
+    // SQL-specific settings - also disable formatting
+    "[sql]": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "editor.formatOnSave": false,
+        "editor.formatOnPaste": false,
+        "editor.formatOnType": false
+    },
+    
+    // Python-specific settings - completely disable all formatting
+    "[python]": {
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.formatOnSave": false,
+        "editor.formatOnPaste": false,
+        "editor.formatOnType": false,
+        "editor.autoIndent": "none",
+        "editor.defaultFormatter": "none",
+        "editor.codeActionsOnSave": {},
+        "editor.suggest.insertMode": "replace"
+    },
+    
+    // Disable extension recommendations and auto-updates
+    "extensions.autoUpdate": false,
+    "extensions.ignoreRecommendations": true,
+    
+    // Disable IntelliSense auto-formatting
+    "python.analysis.autoImportCompletions": false,
+    "python.analysis.completeFunctionParens": false,
+    
+    // Streamlit specific settings
+    "python.terminal.activateEnvironment": true,
+    "python.defaultInterpreterPath": "./venv/bin/python",
+    
+    // Bracket pair colorization
+    "editor.bracketPairColorization.enabled": true,
+    "editor.guides.bracketPairs": "active",
+    
+    // Auto-completion settings - minimal
+    "editor.suggestSelection": "first",
+    "editor.acceptSuggestionOnCommitCharacter": false,
+    "editor.acceptSuggestionOnEnter": "off",
+    "editor.quickSuggestions": {
+        "other": true,
+        "comments": false,
+        "strings": false
+    },
+    
+    // Git settings
+    "git.autofetch": true,
+    "git.confirmSync": false,
+    
+    // File explorer settings
+    "explorer.confirmDelete": false,
+    "explorer.confirmDragAndDrop": false,
+    
+    // Terminal settings
+    "terminal.integrated.defaultProfile.windows": "Command Prompt",
+    "terminal.integrated.defaultProfile.osx": "zsh",
+    "terminal.integrated.defaultProfile.linux": "bash",
+    
+    // Disable all automatic actions
+    "editor.snippetSuggestions": "top",
+    "editor.tabCompletion": "off",
+    "editor.parameterHints.enabled": false,
+    
+    // Disable workspace trust to prevent automatic formatting
+    "security.workspace.trust.enabled": false
+}
