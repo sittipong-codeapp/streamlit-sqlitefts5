@@ -5,3 +5,5 @@
 ./stream-env
 
 command.sh
+
+/__pycache__
