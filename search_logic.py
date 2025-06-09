@@ -17,15 +17,12 @@ def update_weights(dest_type, hotel_count_weight, country_hotel_count_weight):
         return False
 
     # Update the weights for the specified destination type
-    cursor.execute(
-        """
+    cursor.execute('''
         UPDATE factor_weights
         SET hotel_count_weight = ?,
             country_hotel_count_weight = ?
         WHERE type = ?
-    """,
-        (hotel_count_weight, country_hotel_count_weight, dest_type),
-    )
+    ''', (hotel_count_weight, country_hotel_count_weight, dest_type))
 
     # Get max city hotel count for normalization
     cursor.execute("SELECT MAX(total_hotels) FROM city")
@@ -38,14 +35,11 @@ def update_weights(dest_type, hotel_count_weight, country_hotel_count_weight):
 
     for dest_id in dest_ids:
         # Get country
-        cursor.execute(
-            """
+        cursor.execute('''
             SELECT d.country_id 
             FROM destination d 
             WHERE d.id = ?
-        """,
-            (dest_id,),
-        )
+        ''',(dest_id,))
         result = cursor.fetchone()
         country_id = result[0] if result else None
 
@@ -54,51 +48,39 @@ def update_weights(dest_type, hotel_count_weight, country_hotel_count_weight):
 
         # Get hotel count from appropriate location table and normalize
         if dest_type == "city":
-            cursor.execute(
-                """
+            cursor.execute('''
                 SELECT ci.total_hotels 
                 FROM destination d 
                 JOIN city ci ON d.city_id = ci.id 
                 WHERE d.id = ?
-            """,
-                (dest_id,),
-            )
+            ''',(dest_id,))
             result = cursor.fetchone()
             hotel_count = result[0] if result else 0
 
             # Get max hotel count within the same country
-            cursor.execute(
-                """
+            cursor.execute('''
                 SELECT MAX(ci.total_hotels) 
                 FROM city ci 
                 WHERE ci.country_id = ?
-            """,
-                (country_id,),
-            )
+            ''',(country_id,))
             result = cursor.fetchone()
             max_country_city_hotels = result[0] if result and result[0] else 1
         else:  # area
-            cursor.execute(
-                """
+            cursor.execute('''
                 SELECT ar.total_hotels 
                 FROM destination d 
                 JOIN area ar ON d.area_id = ar.id 
                 WHERE d.id = ?
-            """,
-                (dest_id,),
-            )
+            ''',(dest_id,))
             result = cursor.fetchone()
             hotel_count = result[0] if result else 0
 
             # Get max hotel count within the same country
-            cursor.execute(
-                """
+            cursor.execute('''
                 SELECT MAX(ci.total_hotels) 
                 FROM city ci 
                 WHERE ci.country_id = ?
-            """,
-                (country_id,),
-            )
+            ''',(country_id,))
             result = cursor.fetchone()
             max_country_city_hotels = result[0] if result and result[0] else 1
 
@@ -114,34 +96,23 @@ def update_weights(dest_type, hotel_count_weight, country_hotel_count_weight):
         weighted_sum = (hotel_count_normalized * hotel_count_weight) + (
             country_hotel_count_normalized * country_hotel_count_weight
         )
-        factor_count = 2
-        cursor.execute(
-            """
-        SELECT max(hotel_count_weight) + max(country_hotel_count_weight) as max_weight_sum
-        FROM factor_weights
-        """
-        )
+        cursor.execute('''
+            SELECT max(hotel_count_weight) + max(country_hotel_count_weight) as max_weight_sum
+            FROM factor_weights
+        ''')
         factor_sum = cursor.fetchone()[0]
 
         # Boost score for Thailand
-        boost_up = 3 * factor_count if country_id == 106 else 1
+        boost_up = 3 * factor_sum if country_id == 106 else 1
 
         total_score = weighted_sum * boost_up / factor_sum if factor_sum > 0 else 0
 
         # Update the score
-        cursor.execute(
-            """
+        cursor.execute('''
             UPDATE destination_score
             SET hotel_count_normalized = ?, country_hotel_count_normalized = ?, total_score = ?
             WHERE destination_id = ?
-        """,
-            (
-                hotel_count_normalized,
-                country_hotel_count_normalized,
-                total_score,
-                dest_id,
-            ),
-        )
+        ''',(hotel_count_normalized, country_hotel_count_normalized, total_score, dest_id))
 
     conn.commit()
     conn.close()
@@ -159,8 +130,7 @@ def search_destinations(query):
     # 2. Direct area name match (FTS search)
     # 3. Cities by country name match (FTS search on country names)
     # 4. Areas by city name match (FTS search on city names)
-    cursor.execute(
-        """
+    cursor.execute('''
         -- direct_city
         SELECT DISTINCT
             'city' as type,
@@ -259,9 +229,7 @@ def search_destinations(query):
         
         ORDER BY total_score DESC, hotel_count DESC
         LIMIT 20
-    """,
-        (match_pattern, match_pattern, match_pattern, match_pattern),
-    )
+    ''', (match_pattern, match_pattern, match_pattern, match_pattern))
 
     # Remove the match_type column from results before returning
     results = cursor.fetchall()
