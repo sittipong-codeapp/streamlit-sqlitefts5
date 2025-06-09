@@ -304,15 +304,6 @@ def main():
                 weights_display_df = pd.DataFrame(weights_display)
                 st.dataframe(weights_display_df, hide_index=True)
 
-            # Show detailed factor breakdown
-            with st.expander("View Detailed Factor Breakdown"):
-                factor_breakdown_df = df[
-                    ["Display Name", "Type", "Country",
-                     "Normalized: Hotel Count", "Normalized: Country Hotel Count",
-                     "Normalized: Agoda Score", "Normalized: Google Score", 
-                     "Normalized: Expenditure Score", "Normalized: Departure Score"]
-                ]
-                st.dataframe(factor_breakdown_df, hide_index=True)
         else:
             st.write("No matching destinations found.")
 
