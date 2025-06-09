@@ -177,7 +177,8 @@ def search_destinations(query):
         LEFT JOIN destination_score s ON d.id = s.destination_id
         LEFT JOIN factor_weights w ON w.type = 'area'
         WHERE fts.name MATCH ?
-        
+
+
         UNION
         
         -- city_by_country_fts
@@ -226,10 +227,34 @@ def search_destinations(query):
         LEFT JOIN destination_score s ON d.id = s.destination_id
         LEFT JOIN factor_weights w ON w.type = 'area'
         WHERE city_fts.name MATCH ?
+
+        UNION
         
-        ORDER BY total_score DESC, hotel_count DESC
+        -- direct_hotel (NEW)
+        SELECT DISTINCT
+            'hotel' as type,
+            h.name, 
+            co.name as country_name,
+            ci.name as city_name,
+            CASE WHEN ar.name IS NOT NULL THEN ar.name ELSE NULL END as area_name,
+            1 as hotel_count,
+            0 as hotel_count_normalized,
+            0 as country_hotel_count_normalized,
+            0 as total_score,
+            0 as hotel_count_weight,
+            0 as country_hotel_count_weight,
+            co.total_hotels as country_total_hotels
+        FROM hotel h
+        JOIN hotel_fts fts ON h.id = fts.rowid
+        LEFT JOIN city ci ON h.city_id = ci.id
+        LEFT JOIN area ar ON h.area_id = ar.id
+        LEFT JOIN country co ON ci.country_id = co.id
+        WHERE fts.name MATCH ?
+        
+        
+        ORDER BY total_score DESC, hotel_count DESC, type
         LIMIT 20
-    ''', (match_pattern, match_pattern, match_pattern, match_pattern))
+    ''', (match_pattern, match_pattern, match_pattern, match_pattern, match_pattern))
 
     # Remove the match_type column from results before returning
     results = cursor.fetchall()

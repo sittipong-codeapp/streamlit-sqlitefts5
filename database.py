@@ -66,6 +66,26 @@ def load_csv_data():
         except Exception as e:
             print(f'Error reading area file: {e}')
 
+    # Load hotel
+    hotels = {}
+    hotel_file = os.path.join(data_dir, 'hotel.csv')
+    if os.path.exists(hotel_file):
+        try:
+            with open(hotel_file, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    try:
+                        hotels[int(row['id'])] = {
+                            'name': row['name'],
+                            'city_id': int(row['city_id']),
+                            'area_id': int(row['area_id']),
+                        }
+                    except (ValueError, KeyError) as e:
+                        continue  # Skip invalid rows
+        except Exception as e:
+            print(f'Error reading hotel file: {e}')
+
+
     # Load destinations
     destinations = []
     destination_file = os.path.join(data_dir, 'destination.csv')
@@ -120,7 +140,7 @@ def load_csv_data():
         for country_id, country_name in country_names:
             countries[country_id] = {'name': country_name, 'total_hotels': 0}
 
-    return countries, cities, areas, destinations
+    return countries, cities, areas, hotels, destinations
 
 
 # Function to initialize the SQLite database
@@ -155,6 +175,17 @@ def init_database():
             name TEXT NOT NULL,
             city_id INTEGER,
             total_hotels INTEGER DEFAULT 0,
+            FOREIGN KEY (city_id) REFERENCES city(id)
+        )
+    ''')
+
+    # Create the hotel table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS hotel (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            city_id INTEGER,
+            area_id INTEGER,
             FOREIGN KEY (city_id) REFERENCES city(id)
         )
     ''')
@@ -203,37 +234,23 @@ def init_database():
     # Create necessary indexes if they don't exist
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_city_country_id ON city(country_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_area_city_id ON area(city_id)')
-    cursor.execute(
-        'CREATE INDEX IF NOT EXISTS idx_destination_city_id ON destination(city_id)'
-    )
-    cursor.execute(
-        'CREATE INDEX IF NOT EXISTS idx_destination_area_id ON destination(area_id)'
-    )
-    cursor.execute(
-        'CREATE INDEX IF NOT EXISTS idx_destination_country_id ON destination(country_id)'
-    )
-    cursor.execute(
-        'CREATE INDEX IF NOT EXISTS idx_destination_type ON destination(type)'
-    )
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_hotel_area_id ON hotel(area_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_hotel_city_id ON hotel(city_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_destination_city_id ON destination(city_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_destination_area_id ON destination(area_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_destination_country_id ON destination(country_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_destination_type ON destination(type)')
 
     # Create separate FTS5 virtual tables for countries, cities and areas
-    cursor.execute(
-        '''
-        CREATE VIRTUAL TABLE IF NOT EXISTS country_fts USING fts5(name, content=country, content_rowid=id)
-    '''
-    )
+    cursor.execute('''
+    CREATE VIRTUAL TABLE IF NOT EXISTS country_fts USING fts5(name, content=country, content_rowid=id)
+    ''')
 
-    cursor.execute(
-        '''
-        CREATE VIRTUAL TABLE IF NOT EXISTS city_fts USING fts5(name, content=city, content_rowid=id)
-    '''
-    )
+    cursor.execute('''CREATE VIRTUAL TABLE IF NOT EXISTS city_fts USING fts5(name, content=city, content_rowid=id)''')
 
-    cursor.execute(
-        '''
-        CREATE VIRTUAL TABLE IF NOT EXISTS area_fts USING fts5(name, content=area, content_rowid=id)
-    '''
-    )
+    cursor.execute('''CREATE VIRTUAL TABLE IF NOT EXISTS area_fts USING fts5(name, content=area, content_rowid=id)''')
+
+    cursor.execute('''CREATE VIRTUAL TABLE IF NOT EXISTS hotel_fts USING fts5(name, content=hotel, content_rowid=id)''')
 
     # Insert data from CSV files if the table is empty
     cursor.execute('SELECT COUNT(*) FROM destination')
@@ -248,14 +265,14 @@ def init_database():
 
         # Load data from CSV files
         try:
-            countries_data, cities_data, areas_data, destinations_data = load_csv_data()
+            countries_data, cities_data, areas_data, hotels_data, destinations_data = load_csv_data()
         except Exception as e:
             error_msg = f'Error loading CSV data: {e}'
             if 'st' in globals() and loading_placeholder:
                 loading_placeholder.error(error_msg)
             else:
                 print(error_msg)
-            countries_data, cities_data, areas_data, destinations_data = {}, {}, {}, []
+            countries_data, cities_data, areas_data, hotels_data, destinations_data = {}, {}, {}, {}, []
 
         if not countries_data:
             sample_msg = 'No country data found, using sample data...'
@@ -283,7 +300,7 @@ def init_database():
                 4: {'name': 'Shibuya Crossing', 'city_id': 4, 'total_hotels': 25},
             }
         else:
-            success_msg = f'Loaded {len(countries_data)} countries, {len(cities_data)} cities, {len(areas_data)} areas, {len(destinations_data)} destinations'
+            success_msg = f'Loaded {len(countries_data)} countries, {len(cities_data)} cities, {len(areas_data)} areas, {len(hotels_data)} hotels, {len(destinations_data)} destinations'
             if 'st' in globals() and loading_placeholder:
                 loading_placeholder.success(success_msg)
             else:
@@ -317,6 +334,18 @@ def init_database():
                     area_info['name'],
                     area_info['city_id'],
                     area_info['total_hotels'],
+                ),
+            )
+
+        # Insert hotels
+        for hotel_id, hotel_info in hotels_data.items():
+            cursor.execute(
+                'INSERT OR IGNORE INTO hotel (id, name, city_id, area_id) VALUES (?, ?, ?, ?)',
+                (
+                    hotel_id,
+                    hotel_info['name'],
+                    hotel_info['city_id'],
+                    hotel_info['area_id'],
                 ),
             )
 
@@ -401,8 +430,7 @@ def init_database():
         for dest_data in destinations_to_insert:
             cursor.execute(
                 'INSERT OR IGNORE INTO destination (id, name, country_id, city_id, area_id, type) VALUES (?, ?, ?, ?, ?, ?)',
-                dest_data,
-            )
+                dest_data)
 
         # Update country total_hotels with aggregated hotel counts from their cities
         cursor.execute(
@@ -422,6 +450,7 @@ def init_database():
         )
         cursor.execute('INSERT INTO city_fts (rowid, name) SELECT id, name FROM city')
         cursor.execute('INSERT INTO area_fts (rowid, name) SELECT id, name FROM area')
+        cursor.execute('INSERT INTO hotel_fts (rowid, name) SELECT id, name FROM hotel')
 
         # Set default weights with two-factor weighting (no rating)
         city_hotel_count_weight = 0.8  # Global hotel count weight for cities
