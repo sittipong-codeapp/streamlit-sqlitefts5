@@ -55,7 +55,7 @@
         "editor.formatOnPaste": false,
         "editor.formatOnType": false,
         "editor.autoIndent": "none",
-        "editor.defaultFormatter": "none",
+        "editor.defaultFormatter": "ms-python.black-formatter",
         "editor.codeActionsOnSave": {},
         "editor.suggest.insertMode": "replace"
     },
