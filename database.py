@@ -347,20 +347,20 @@ def init_database():
         cursor.execute('INSERT INTO hotel_fts (rowid, name) SELECT id, name FROM hotel')
 
         # Set default weights with four-factor weighting
-        city_hotel_count_weight = 0.4  # Global hotel count weight for cities
-        city_country_hotel_count_weight = 0.2  # Country hotel count weight for cities
-        city_expenditure_weight = 0.25  # Expenditure score weight for cities
-        city_departure_weight = 0.15  # Departure score weight for cities
+        city_hotel_count_weight = 0.5  # Global hotel count weight for cities
+        city_country_hotel_count_weight = 0.5  # Country hotel count weight for cities
+        city_expenditure_weight = 0.5  # Expenditure score weight for cities
+        city_departure_weight = 0.5  # Departure score weight for cities
 
-        area_hotel_count_weight = 0.3  # Global hotel count weight for areas
-        area_country_hotel_count_weight = 0.2  # Country hotel count weight for areas
-        area_expenditure_weight = 0.3  # Expenditure score weight for areas
-        area_departure_weight = 0.2  # Departure score weight for areas
+        area_hotel_count_weight = 0.5  # Global hotel count weight for areas
+        area_country_hotel_count_weight = 0.5  # Country hotel count weight for areas
+        area_expenditure_weight = 0.5  # Expenditure score weight for areas
+        area_departure_weight = 0.5  # Departure score weight for areas
 
-        hotel_agoda_weight = 0.3  # Agoda score weight for hotels
-        hotel_google_weight = 0.2  # Google score weight for hotels
-        hotel_expenditure_weight = 0.3  # Expenditure score weight for hotels
-        hotel_departure_weight = 0.2  # Departure score weight for hotels
+        hotel_agoda_weight = 0.5  # Agoda score weight for hotels
+        hotel_google_weight = 0.5  # Google score weight for hotels
+        hotel_expenditure_weight = 0.5  # Expenditure score weight for hotels
+        hotel_departure_weight = 0.5  # Departure score weight for hotels
 
         # Insert default factor weights (now with 4 factors)
         default_weights = [
