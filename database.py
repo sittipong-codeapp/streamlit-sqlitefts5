@@ -157,7 +157,25 @@ def load_csv_data():
         except Exception as e:
             print(f'Error reading hotel scores file: {e}')
 
-    return countries, cities, areas, hotels, destinations, hotel_scores
+    # Load country outbound scores
+    country_outbound = {}
+    outbound_file = os.path.join(data_dir, 'country_outbound.csv')
+    if os.path.exists(outbound_file):
+        try:
+            with open(outbound_file, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    try:
+                        country_outbound[int(row['country_id'])] = {
+                            'expenditure_score': float(row['expenditure_score']),
+                            'departure_score': float(row['departure_score']),
+                        }
+                    except (ValueError, KeyError) as e:
+                        continue  # Skip invalid rows
+        except Exception as e:
+            print(f'Error reading country outbound file: {e}')
+
+    return countries, cities, areas, hotels, destinations, hotel_scores, country_outbound
 
 
 # Function to initialize the SQLite database
@@ -215,7 +233,7 @@ def init_database():
             country_id INTEGER,
             city_id INTEGER,
             area_id INTEGER,
-            type TEXT CHECK(type IN ('city', 'area')),
+            type TEXT CHECK(type IN ('city', 'area', 'hotel')),
             FOREIGN KEY (country_id) REFERENCES country(id),
             FOREIGN KEY (city_id) REFERENCES city(id),
             FOREIGN KEY (area_id) REFERENCES area(id)
@@ -232,23 +250,39 @@ def init_database():
         )
     ''')
 
-    # Create the factor weights table (removed rating factor)
+    # Create the country_outbound table
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS factor_weights (
-        type TEXT PRIMARY KEY,  -- 'city', 'area', or 'hotel'
-        hotel_count_weight REAL DEFAULT 0.5,
-        country_hotel_count_weight REAL DEFAULT 0.5,
-        agoda_score_weight REAL DEFAULT 0.5,
-        google_score_weight REAL DEFAULT 0.5
+        CREATE TABLE IF NOT EXISTS country_outbound (
+            country_id INTEGER PRIMARY KEY,
+            expenditure_score REAL DEFAULT 0,
+            departure_score REAL DEFAULT 0,
+            FOREIGN KEY (country_id) REFERENCES country(id)
         )
     ''')
 
-    # Create the score table (normalized factors and total score, removed rating)
+    # Create the factor weights table (now with 4 factors)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS factor_weights (
+            type TEXT PRIMARY KEY,  -- 'city', 'area', or 'hotel'
+            hotel_count_weight REAL DEFAULT 0.25,
+            country_hotel_count_weight REAL DEFAULT 0.25,
+            agoda_score_weight REAL DEFAULT 0.25,
+            google_score_weight REAL DEFAULT 0.25,
+            expenditure_score_weight REAL DEFAULT 0.25,
+            departure_score_weight REAL DEFAULT 0.25
+        )
+    ''')
+
+    # Create the score table (normalized factors and total score, now with 4 factors)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS destination_score (
             destination_id INTEGER PRIMARY KEY,
             hotel_count_normalized INTEGER DEFAULT 0,
             country_hotel_count_normalized INTEGER DEFAULT 0,
+            agoda_score_normalized INTEGER DEFAULT 0,
+            google_score_normalized INTEGER DEFAULT 0,
+            expenditure_score_normalized INTEGER DEFAULT 0,
+            departure_score_normalized INTEGER DEFAULT 0,
             total_score REAL DEFAULT 0,
             FOREIGN KEY (destination_id) REFERENCES destination(id)
         )
@@ -294,14 +328,14 @@ def init_database():
 
         # Load data from CSV files
         try:
-            countries_data, cities_data, areas_data, hotels_data, destinations_data, hotel_scores_data = load_csv_data()
+            countries_data, cities_data, areas_data, hotels_data, destinations_data, hotel_scores_data, country_outbound_data = load_csv_data()
         except Exception as e:
             error_msg = f'Error loading CSV data: {e}'
             if 'st' in globals() and loading_placeholder:
                 loading_placeholder.error(error_msg)
             else:
                 print(error_msg)
-            countries_data, cities_data, areas_data, hotels_data, destinations_data, hotel_scores_data = {}, {}, {}, {}, [], {}
+            countries_data, cities_data, areas_data, hotels_data, destinations_data, hotel_scores_data, country_outbound_data = {}, {}, {}, {}, [], {}, {}
 
         if not countries_data:
             sample_msg = 'No country data found, using sample data...'
@@ -328,8 +362,14 @@ def init_database():
                 3: {'name': 'Central Park', 'city_id': 3, 'total_hotels': 50},
                 4: {'name': 'Shibuya Crossing', 'city_id': 4, 'total_hotels': 25},
             }
+            country_outbound_data = {
+                1: {'expenditure_score': 50.0, 'departure_score': 40.0},
+                2: {'expenditure_score': 45.0, 'departure_score': 35.0},
+                3: {'expenditure_score': 60.0, 'departure_score': 30.0},
+                4: {'expenditure_score': 55.0, 'departure_score': 38.0},
+            }
         else:
-            success_msg = f'Loaded {len(countries_data)} countries, {len(cities_data)} cities, {len(areas_data)} areas, {len(hotels_data)} hotels, {len(destinations_data)} destinations'
+            success_msg = f'Loaded {len(countries_data)} countries, {len(cities_data)} cities, {len(areas_data)} areas, {len(hotels_data)} hotels, {len(destinations_data)} destinations, {len(country_outbound_data)} outbound scores'
             if 'st' in globals() and loading_placeholder:
                 loading_placeholder.success(success_msg)
             else:
@@ -375,6 +415,17 @@ def init_database():
                     hotel_info['name'],
                     hotel_info['city_id'],
                     hotel_info['area_id'],
+                ),
+            )
+
+        # Insert country outbound scores
+        for country_id, outbound_info in country_outbound_data.items():
+            cursor.execute(
+                'INSERT OR IGNORE INTO country_outbound (country_id, expenditure_score, departure_score) VALUES (?, ?, ?)',
+                (
+                    country_id,
+                    outbound_info['expenditure_score'],
+                    outbound_info['departure_score'],
                 ),
             )
 
@@ -488,22 +539,30 @@ def init_database():
         cursor.execute('INSERT INTO area_fts (rowid, name) SELECT id, name FROM area')
         cursor.execute('INSERT INTO hotel_fts (rowid, name) SELECT id, name FROM hotel')
 
-        # Set default weights with two-factor weighting (no rating)
-        city_hotel_count_weight = 0.8  # Global hotel count weight for cities
-        city_country_hotel_count_weight = 0.05  # Country hotel count weight for cities
-        area_hotel_count_weight = 0.4  # Global hotel count weight for areas
-        area_country_hotel_count_weight = 0.05  # Country hotel count weight for areas
-        agoda_weight = 0.6
-        google_trend_weight = 0.4
+        # Set default weights with four-factor weighting
+        city_hotel_count_weight = 0.4  # Global hotel count weight for cities
+        city_country_hotel_count_weight = 0.2  # Country hotel count weight for cities
+        city_expenditure_weight = 0.25  # Expenditure score weight for cities
+        city_departure_weight = 0.15  # Departure score weight for cities
 
-        # Insert default factor weights (removed rating)
+        area_hotel_count_weight = 0.3  # Global hotel count weight for areas
+        area_country_hotel_count_weight = 0.2  # Country hotel count weight for areas
+        area_expenditure_weight = 0.3  # Expenditure score weight for areas
+        area_departure_weight = 0.2  # Departure score weight for areas
+
+        hotel_agoda_weight = 0.3  # Agoda score weight for hotels
+        hotel_google_weight = 0.2  # Google score weight for hotels
+        hotel_expenditure_weight = 0.3  # Expenditure score weight for hotels
+        hotel_departure_weight = 0.2  # Departure score weight for hotels
+
+        # Insert default factor weights (now with 4 factors)
         default_weights = [
-            ('city', city_hotel_count_weight, city_country_hotel_count_weight, 0, 0),
-            ('area', area_hotel_count_weight, area_country_hotel_count_weight, 0, 0),
-            ('hotel', 0, 0, agoda_weight, google_trend_weight),
+            ('city', city_hotel_count_weight, city_country_hotel_count_weight, 0, 0, city_expenditure_weight, city_departure_weight),
+            ('area', area_hotel_count_weight, area_country_hotel_count_weight, 0, 0, area_expenditure_weight, area_departure_weight),
+            ('hotel', 0, 0, hotel_agoda_weight, hotel_google_weight, hotel_expenditure_weight, hotel_departure_weight),
         ]
         cursor.executemany(
-            'INSERT INTO factor_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight) VALUES (?, ?, ?, ?, ?)',
+            'INSERT INTO factor_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
             default_weights,
         )
 
@@ -515,25 +574,24 @@ def init_database():
             result[0] if result and result[0] else 1
         )  # Avoid division by zero
 
-        # Create scores with normalized hotel counts from location tables
+        # Get max scores for normalization
+        cursor.execute("SELECT MAX(agoda_score), MAX(google_score) FROM hotel_scores")
+        result = cursor.fetchone()
+
+        # Create scores with normalized values from location tables
         scores = []
 
-        # Get all destinations for scoring
-        cursor.execute('SELECT id, type, country_id FROM destination')
+        # Get all destinations for scoring with their relationships
+        cursor.execute('''
+            SELECT d.id, d.type, d.country_id, d.city_id, d.area_id 
+            FROM destination d
+        ''')
         destinations = cursor.fetchall()
 
-        for dest_id, dest_type, country_id in destinations:
-            # Get hotel count from appropriate location table
+        for dest_id, dest_type, country_id, city_id, area_id in destinations:
+            # Get hotel count from appropriate location table using direct queries
             if dest_type == 'city':
-                cursor.execute(
-                    '''
-                    SELECT ci.total_hotels 
-                    FROM destination d 
-                    JOIN city ci ON d.city_id = ci.id 
-                    WHERE d.id = ?
-                ''',
-                    (dest_id,),
-                )
+                cursor.execute('SELECT total_hotels FROM city WHERE id = ?', (city_id,))
                 result = cursor.fetchone()
                 hotel_count = result[0] if result else 0
                 # Normalize city hotel count: city.total_hotels / max(city.total_hotels)
@@ -541,11 +599,7 @@ def init_database():
 
                 # Get max hotel count within the same country for country normalization
                 cursor.execute(
-                    '''
-                    SELECT MAX(ci.total_hotels) 
-                    FROM city ci 
-                    WHERE ci.country_id = ?
-                ''',
+                    'SELECT MAX(total_hotels) FROM city WHERE country_id = ?',
                     (country_id,),
                 )
                 result = cursor.fetchone()
@@ -556,27 +610,16 @@ def init_database():
                     else 0
                 )
             else:  # area
-                cursor.execute(
-                    '''
-                    SELECT ar.total_hotels 
-                    FROM destination d 
-                    JOIN area ar ON d.area_id = ar.id 
-                    WHERE d.id = ?
-                ''',
-                    (dest_id,),
-                )
+                # For areas, count actual hotels in this area
+                cursor.execute('SELECT COUNT(*) FROM hotel WHERE area_id = ?', (area_id,))
                 result = cursor.fetchone()
                 hotel_count = result[0] if result else 0
-                # Normalize area hotel count: area.total_hotels / max(city.total_hotels)
+                # Normalize area hotel count: area hotel count / max(city.total_hotels)
                 hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
 
                 # Get max hotel count within the same country for country normalization
                 cursor.execute(
-                    '''
-                    SELECT MAX(ci.total_hotels) 
-                    FROM city ci 
-                    WHERE ci.country_id = ?
-                ''',
+                    'SELECT MAX(total_hotels) FROM city WHERE country_id = ?',
                     (country_id,),
                 )
                 result = cursor.fetchone()
@@ -586,88 +629,66 @@ def init_database():
                     if max_country_city_hotels > 200
                     else 0
                 )
+
+            # Get outbound scores for this country (already normalized to 0-100)
+            cursor.execute(
+                'SELECT expenditure_score, departure_score FROM country_outbound WHERE country_id = ?',
+                (country_id,)
+            )
+            outbound_result = cursor.fetchone()
+            if outbound_result:
+                expenditure_score_normalized = int(outbound_result[0])
+                departure_score_normalized = int(outbound_result[1])
+            else:
+                expenditure_score_normalized = 0
+                departure_score_normalized = 0
 
             # Get weights for this destination type
             if dest_type == 'city':
                 hotel_count_weight = city_hotel_count_weight
                 country_hotel_count_weight = city_country_hotel_count_weight
+                expenditure_weight = city_expenditure_weight
+                departure_weight = city_departure_weight
             else:  # area
                 hotel_count_weight = area_hotel_count_weight
                 country_hotel_count_weight = area_country_hotel_count_weight
+                expenditure_weight = area_expenditure_weight
+                departure_weight = area_departure_weight
 
-            # Calculate weighted total score with two factors (no rating)
-            weighted_sum = (hotel_count_normalized * hotel_count_weight) + (
-                country_hotel_count_normalized * country_hotel_count_weight
+            # Calculate weighted total score with four factors
+            weighted_sum = (
+                (hotel_count_normalized * hotel_count_weight) + 
+                (country_hotel_count_normalized * country_hotel_count_weight) +
+                (expenditure_score_normalized * expenditure_weight) +
+                (departure_score_normalized * departure_weight)
             )
-            factor_sum = hotel_count_weight + country_hotel_count_weight
+            factor_sum = hotel_count_weight + country_hotel_count_weight + expenditure_weight + departure_weight
 
-            # Boost score for Thailand
-            boost_up = 3 * factor_sum if    country_id == 106 else 1
-
-            total_score = weighted_sum * boost_up / factor_sum if factor_sum > 0 else 0
+            total_score = weighted_sum / factor_sum if factor_sum > 0 else 0
 
             scores.append(
                 (
                     dest_id,
                     hotel_count_normalized,
                     country_hotel_count_normalized,
+                    0,  # agoda_score_normalized (not applicable for cities/areas)
+                    0,  # google_score_normalized (not applicable for cities/areas)
+                    expenditure_score_normalized,
+                    departure_score_normalized,
                     total_score,
                 )
             )
 
-        # Insert scores with both hotel count normalizations (no rating)
+        # Insert scores with all four factors
         cursor.executemany(
             '''
             INSERT INTO destination_score (
-                destination_id, hotel_count_normalized, country_hotel_count_normalized, total_score
-            ) VALUES (?, ?, ?, ?)
+                destination_id, hotel_count_normalized, country_hotel_count_normalized, 
+                agoda_score_normalized, google_score_normalized, expenditure_score_normalized, 
+                departure_score_normalized, total_score
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''',
             scores,
-        )
-        # Calculate initial scores for hotels (NEW)
-        cursor.execute("SELECT MAX(agoda_score), MAX(google_score) FROM hotel_scores")
-        result = cursor.fetchone()
-        max_agoda_score = result[0] if result and result[0] else 100
-        max_google_score = result[1] if result and result[1] else 100
-
-        # Get all hotels with scores and calculate their initial scores
-        cursor.execute('''
-            SELECT h.id, hs.agoda_score, hs.google_score, ci.country_id
-            FROM hotel h
-            LEFT JOIN hotel_scores hs ON h.id = hs.hotel_id
-            LEFT JOIN city ci ON h.city_id = ci.id
-        ''')
-        hotels = cursor.fetchall()
-
-        hotel_scores = []
-        for hotel_id, agoda_score, google_score, country_id in hotels:
-            # Default to 0 if no scores found
-            agoda_score = agoda_score or 0
-            google_score = google_score or 0
-            
-            # Normalize scores (0-100 scale)
-            agoda_normalized = int((agoda_score / max_agoda_score) * 100)
-            google_normalized = int((google_score / max_google_score) * 100)
-            
-            # Calculate weighted total score using hotel weights
-            weighted_sum = (agoda_normalized * agoda_weight) + (google_normalized * google_trend_weight)
-            factor_sum = agoda_weight + google_trend_weight
-            
-            # Boost score for Thailand
-            boost_up = 3 * factor_sum if country_id == 106 else 1
-            
-            total_score = weighted_sum * boost_up / factor_sum if factor_sum > 0 else 0
-
-            hotel_scores.append((hotel_id, agoda_normalized, google_normalized, total_score))
-
-        # Insert hotel scores
-        cursor.executemany(
-            '''
-            INSERT OR IGNORE INTO destination_score (
-                destination_id, hotel_count_normalized, country_hotel_count_normalized, total_score
-            ) VALUES (?, ?, ?, ?)
-        ''',
-            hotel_scores,
         )
         # Clear the loading message after loading is complete
         if 'st' in globals() and loading_placeholder:

@@ -2,12 +2,12 @@ from database import get_connection
 
 
 # Function to update factor weights and recalculate total score
-def update_weights(dest_type, hotel_count_weight=0, country_hotel_count_weight=0, agoda_score_weight=0, google_score_weight=0):
+def update_weights(dest_type, hotel_count_weight=0, country_hotel_count_weight=0, agoda_score_weight=0, google_score_weight=0, expenditure_score_weight=0, departure_score_weight=0):
     conn = get_connection()
     cursor = conn.cursor()
 
     # Validate weights (should be between 0 and 1)
-    if not all(0 <= w <= 1 for w in [hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight]):
+    if not all(0 <= w <= 1 for w in [hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight]):
         conn.close()
         return False
 
@@ -21,30 +21,34 @@ def update_weights(dest_type, hotel_count_weight=0, country_hotel_count_weight=0
         cursor.execute('''
             UPDATE factor_weights
             SET agoda_score_weight = ?,
-                google_score_weight = ?
+                google_score_weight = ?,
+                expenditure_score_weight = ?,
+                departure_score_weight = ?
             WHERE type = ?
-        ''', (agoda_score_weight, google_score_weight, dest_type))
+        ''', (agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight, dest_type))
     else:
         cursor.execute('''
             UPDATE factor_weights
             SET hotel_count_weight = ?,
-                country_hotel_count_weight = ?
+                country_hotel_count_weight = ?,
+                expenditure_score_weight = ?,
+                departure_score_weight = ?
             WHERE type = ?
-        ''', (hotel_count_weight, country_hotel_count_weight, dest_type))
+        ''', (hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight, dest_type))
 
     # Recalculate scores based on destination type
     if dest_type == "hotel":
-        _recalculate_hotel_scores(cursor, agoda_score_weight, google_score_weight)
+        _recalculate_hotel_scores(cursor, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight)
     else:
-        _recalculate_location_scores(cursor, dest_type, hotel_count_weight, country_hotel_count_weight)
+        _recalculate_location_scores(cursor, dest_type, hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight)
 
     conn.commit()
     conn.close()
     return True
 
 
-def _recalculate_hotel_scores(cursor, agoda_score_weight, google_score_weight):
-    """Recalculate scores for hotels based on agoda and google scores"""
+def _recalculate_hotel_scores(cursor, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight):
+    """Recalculate scores for hotels based on agoda, google, expenditure and departure scores"""
     
     # Get max scores for normalization
     cursor.execute("SELECT MAX(agoda_score), MAX(google_score) FROM hotel_scores")
@@ -52,99 +56,96 @@ def _recalculate_hotel_scores(cursor, agoda_score_weight, google_score_weight):
     max_agoda_score = result[0] if result and result[0] else 100
     max_google_score = result[1] if result and result[1] else 100
 
-    # Get all hotels with scores
+    # Get all hotel destinations using the offset
     cursor.execute('''
-        SELECT h.id, hs.agoda_score, hs.google_score, ci.country_id
-        FROM hotel h
-        LEFT JOIN hotel_scores hs ON h.id = hs.hotel_id
-        LEFT JOIN city ci ON h.city_id = ci.id
+        SELECT d.id as destination_id, d.country_id
+        FROM destination d
+        WHERE d.type = 'hotel'
     ''')
-    hotels = cursor.fetchall()
+    hotel_destinations = cursor.fetchall()
 
-    for hotel_id, agoda_score, google_score, country_id in hotels:
-        # Default to 0 if no scores found
-        agoda_score = agoda_score or 0
-        google_score = google_score or 0
+    for destination_id, country_id in hotel_destinations:
+        # Get original hotel ID by removing offset
+        hotel_id = destination_id - 20000
+        
+        # Get hotel scores
+        cursor.execute('SELECT agoda_score, google_score FROM hotel_scores WHERE hotel_id = ?', (hotel_id,))
+        result = cursor.fetchone()
+        if result:
+            agoda_score, google_score = result
+        else:
+            agoda_score, google_score = 0, 0
         
         # Normalize scores (0-100 scale)
-        agoda_normalized = int((agoda_score / max_agoda_score) * 100)
-        google_normalized = int((google_score / max_google_score) * 100)
+        agoda_normalized = int((agoda_score / max_agoda_score) * 100) if agoda_score else 0
+        google_normalized = int((google_score / max_google_score) * 100) if google_score else 0
         
-        # Calculate weighted total score
-        weighted_sum = (agoda_normalized * agoda_score_weight) + (google_normalized * google_score_weight)
-        factor_sum = agoda_score_weight + google_score_weight
+        # Get outbound scores for this country
+        cursor.execute(
+            'SELECT expenditure_score, departure_score FROM country_outbound WHERE country_id = ?',
+            (country_id,)
+        )
+        outbound_result = cursor.fetchone()
+        if outbound_result:
+            expenditure_score_normalized = int(outbound_result[0])
+            departure_score_normalized = int(outbound_result[1])
+        else:
+            expenditure_score_normalized = 0
+            departure_score_normalized = 0
         
-        # Boost score for Thailand
-        boost_up = 3 * factor_sum if country_id == 106 else 1
+        # Calculate weighted total score with four factors
+        weighted_sum = (
+            (agoda_normalized * agoda_score_weight) + 
+            (google_normalized * google_score_weight) +
+            (expenditure_score_normalized * expenditure_score_weight) +
+            (departure_score_normalized * departure_score_weight)
+        )
+        factor_sum = agoda_score_weight + google_score_weight + expenditure_score_weight + departure_score_weight
         
-        total_score = weighted_sum * boost_up / factor_sum if factor_sum > 0 else 0
+        total_score = weighted_sum / factor_sum if factor_sum > 0 else 0
 
-        # Update or insert score for hotel
+        # Update score for hotel using destination_id, with 0 for hotel count factors
         cursor.execute('''
             INSERT OR REPLACE INTO destination_score 
-            (destination_id, hotel_count_normalized, country_hotel_count_normalized, total_score)
-            VALUES (?, ?, ?, ?)
-        ''', (hotel_id, agoda_normalized, google_normalized, total_score))
+            (destination_id, hotel_count_normalized, country_hotel_count_normalized, 
+             agoda_score_normalized, google_score_normalized, expenditure_score_normalized, 
+             departure_score_normalized, total_score)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (destination_id, 0, 0, agoda_normalized, google_normalized, expenditure_score_normalized, departure_score_normalized, total_score))
 
 
-def _recalculate_location_scores(cursor, dest_type, hotel_count_weight, country_hotel_count_weight):
-    """Recalculate scores for cities and areas (existing logic)"""
+def _recalculate_location_scores(cursor, dest_type, hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight):
+    """Recalculate scores for cities and areas with four factors"""
     
     # Get max city hotel count for normalization
     cursor.execute("SELECT MAX(total_hotels) FROM city")
     result = cursor.fetchone()
     max_city_hotels = result[0] if result and result[0] else 1
 
-    # Get all destinations of the specified type
-    cursor.execute("SELECT id FROM destination WHERE type = ?", (dest_type,))
-    dest_ids = [row[0] for row in cursor.fetchall()]
+    # Get all destinations of the specified type with their relationships
+    cursor.execute("SELECT id, city_id, area_id, country_id FROM destination WHERE type = ?", (dest_type,))
+    destinations = cursor.fetchall()
 
-    for dest_id in dest_ids:
-        # Get country
-        cursor.execute('''
-            SELECT d.country_id 
-            FROM destination d 
-            WHERE d.id = ?
-        ''', (dest_id,))
-        result = cursor.fetchone()
-        country_id = result[0] if result else None
-
+    for dest_id, city_id, area_id, country_id in destinations:
         if not country_id:
             continue
 
-        # Get hotel count from appropriate location table and normalize
+        # Get hotel count from appropriate location table using direct queries
         if dest_type == "city":
-            cursor.execute('''
-                SELECT ci.total_hotels 
-                FROM destination d 
-                JOIN city ci ON d.city_id = ci.id 
-                WHERE d.id = ?
-            ''', (dest_id,))
+            cursor.execute('SELECT total_hotels FROM city WHERE id = ?', (city_id,))
             result = cursor.fetchone()
             hotel_count = result[0] if result else 0
 
-            cursor.execute('''
-                SELECT MAX(ci.total_hotels) 
-                FROM city ci 
-                WHERE ci.country_id = ?
-            ''', (country_id,))
+            cursor.execute('SELECT MAX(total_hotels) FROM city WHERE country_id = ?', (country_id,))
             result = cursor.fetchone()
             max_country_city_hotels = result[0] if result and result[0] else 1
         else:  # area
-            cursor.execute('''
-                SELECT ar.total_hotels 
-                FROM destination d 
-                JOIN area ar ON d.area_id = ar.id 
-                WHERE d.id = ?
-            ''', (dest_id,))
+            # For areas, count actual hotels in this area
+            cursor.execute('SELECT COUNT(*) FROM hotel WHERE area_id = ?', (area_id,))
             result = cursor.fetchone()
             hotel_count = result[0] if result else 0
 
-            cursor.execute('''
-                SELECT MAX(ci.total_hotels) 
-                FROM city ci 
-                WHERE ci.country_id = ?
-            ''', (country_id,))
+            cursor.execute('SELECT MAX(total_hotels) FROM city WHERE country_id = ?', (country_id,))
             result = cursor.fetchone()
             max_country_city_hotels = result[0] if result and result[0] else 1
 
@@ -156,23 +157,37 @@ def _recalculate_location_scores(cursor, dest_type, hotel_count_weight, country_
             else 0
         )
 
-        # Calculate weighted total score
-        weighted_sum = (hotel_count_normalized * hotel_count_weight) + (
-            country_hotel_count_normalized * country_hotel_count_weight
+        # Get outbound scores for this country
+        cursor.execute(
+            'SELECT expenditure_score, departure_score FROM country_outbound WHERE country_id = ?',
+            (country_id,)
         )
-        factor_sum = hotel_count_weight + country_hotel_count_weight
+        outbound_result = cursor.fetchone()
+        if outbound_result:
+            expenditure_score_normalized = int(outbound_result[0])
+            departure_score_normalized = int(outbound_result[1])
+        else:
+            expenditure_score_normalized = 0
+            departure_score_normalized = 0
 
-        # Boost score for Thailand
-        boost_up = 3 * factor_sum if country_id == 106 else 1
+        # Calculate weighted total score with four factors
+        weighted_sum = (
+            (hotel_count_normalized * hotel_count_weight) + 
+            (country_hotel_count_normalized * country_hotel_count_weight) +
+            (expenditure_score_normalized * expenditure_score_weight) +
+            (departure_score_normalized * departure_score_weight)
+        )
+        factor_sum = hotel_count_weight + country_hotel_count_weight + expenditure_score_weight + departure_score_weight
 
-        total_score = weighted_sum * boost_up / factor_sum if factor_sum > 0 else 0
+        total_score = weighted_sum / factor_sum if factor_sum > 0 else 0
 
         # Update the score
         cursor.execute('''
             UPDATE destination_score
-            SET hotel_count_normalized = ?, country_hotel_count_normalized = ?, total_score = ?
+            SET hotel_count_normalized = ?, country_hotel_count_normalized = ?, 
+                expenditure_score_normalized = ?, departure_score_normalized = ?, total_score = ?
             WHERE destination_id = ?
-        ''', (hotel_count_normalized, country_hotel_count_normalized, total_score, dest_id))
+        ''', (hotel_count_normalized, country_hotel_count_normalized, expenditure_score_normalized, departure_score_normalized, total_score, dest_id))
 
 
 # Function to search destinations
@@ -197,9 +212,17 @@ def search_destinations(query):
             ci.total_hotels as hotel_count,
             s.hotel_count_normalized,
             s.country_hotel_count_normalized,
+            s.agoda_score_normalized,
+            s.google_score_normalized,
+            s.expenditure_score_normalized,
+            s.departure_score_normalized,
             s.total_score,
             w.hotel_count_weight,
             w.country_hotel_count_weight,
+            w.agoda_score_weight,
+            w.google_score_weight,
+            w.expenditure_score_weight,
+            w.departure_score_weight,
             co.total_hotels as country_total_hotels
         FROM city ci
         JOIN city_fts fts ON ci.id = fts.rowid
@@ -218,12 +241,20 @@ def search_destinations(query):
             co.name as country_name,
             ci.name as city_name,
             ar.name as area_name,
-            ar.total_hotels as hotel_count,
+            (SELECT COUNT(*) FROM hotel WHERE area_id = ar.id) as hotel_count,
             s.hotel_count_normalized,
             s.country_hotel_count_normalized,
+            s.agoda_score_normalized,
+            s.google_score_normalized,
+            s.expenditure_score_normalized,
+            s.departure_score_normalized,
             s.total_score,
             w.hotel_count_weight,
             w.country_hotel_count_weight,
+            w.agoda_score_weight,
+            w.google_score_weight,
+            w.expenditure_score_weight,
+            w.departure_score_weight,
             co.total_hotels as country_total_hotels
         FROM area ar
         JOIN area_fts fts ON ar.id = fts.rowid
@@ -233,7 +264,6 @@ def search_destinations(query):
         LEFT JOIN destination_score s ON d.id = s.destination_id
         LEFT JOIN factor_weights w ON w.type = 'area'
         WHERE fts.name MATCH ?
-
 
         UNION
         
@@ -247,9 +277,17 @@ def search_destinations(query):
             ci.total_hotels as hotel_count,
             s.hotel_count_normalized,
             s.country_hotel_count_normalized,
+            s.agoda_score_normalized,
+            s.google_score_normalized,
+            s.expenditure_score_normalized,
+            s.departure_score_normalized,
             s.total_score,
             w.hotel_count_weight,
             w.country_hotel_count_weight,
+            w.agoda_score_weight,
+            w.google_score_weight,
+            w.expenditure_score_weight,
+            w.departure_score_weight,
             co.total_hotels as country_total_hotels
         FROM city ci
         LEFT JOIN country co ON ci.country_id = co.id
@@ -268,12 +306,20 @@ def search_destinations(query):
             co.name as country_name,
             ci.name as city_name,
             ar.name as area_name,
-            ar.total_hotels as hotel_count,
+            (SELECT COUNT(*) FROM hotel WHERE area_id = ar.id) as hotel_count,
             s.hotel_count_normalized,
             s.country_hotel_count_normalized,
+            s.agoda_score_normalized,
+            s.google_score_normalized,
+            s.expenditure_score_normalized,
+            s.departure_score_normalized,
             s.total_score,
             w.hotel_count_weight,
             w.country_hotel_count_weight,
+            w.agoda_score_weight,
+            w.google_score_weight,
+            w.expenditure_score_weight,
+            w.departure_score_weight,
             co.total_hotels as country_total_hotels
         FROM area ar
         LEFT JOIN city ci ON ar.city_id = ci.id
@@ -283,10 +329,10 @@ def search_destinations(query):
         LEFT JOIN destination_score s ON d.id = s.destination_id
         LEFT JOIN factor_weights w ON w.type = 'area'
         WHERE city_fts.name MATCH ?
-
+        
         UNION
         
-        -- direct_hotel (UPDATED to use proper scoring)
+        -- direct_hotel
         SELECT DISTINCT
             'hotel' as type,
             h.name, 
@@ -296,25 +342,32 @@ def search_destinations(query):
             1 as hotel_count,
             COALESCE(s.hotel_count_normalized, 0) as hotel_count_normalized,
             COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
+            COALESCE(s.agoda_score_normalized, 0) as agoda_score_normalized,
+            COALESCE(s.google_score_normalized, 0) as google_score_normalized,
+            COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
+            COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
             COALESCE(s.total_score, 0) as total_score,
-            COALESCE(w.agoda_score_weight, 0) as hotel_count_weight,
-            COALESCE(w.google_score_weight, 0) as country_hotel_count_weight,
+            COALESCE(w.hotel_count_weight, 0) as hotel_count_weight,
+            COALESCE(w.country_hotel_count_weight, 0) as country_hotel_count_weight,
+            COALESCE(w.agoda_score_weight, 0) as agoda_score_weight,
+            COALESCE(w.google_score_weight, 0) as google_score_weight,
+            COALESCE(w.expenditure_score_weight, 0) as expenditure_score_weight,
+            COALESCE(w.departure_score_weight, 0) as departure_score_weight,
             co.total_hotels as country_total_hotels
         FROM hotel h
         JOIN hotel_fts fts ON h.id = fts.rowid
         LEFT JOIN city ci ON h.city_id = ci.id
         LEFT JOIN area ar ON h.area_id = ar.id
         LEFT JOIN country co ON ci.country_id = co.id
-        LEFT JOIN destination_score s ON h.id = s.destination_id
+        LEFT JOIN destination d ON d.id = (h.id + 20000) AND d.type = 'hotel'
+        LEFT JOIN destination_score s ON d.id = s.destination_id
         LEFT JOIN factor_weights w ON w.type = 'hotel'
         WHERE fts.name MATCH ?
-        
         
         ORDER BY total_score DESC, hotel_count DESC, type
         LIMIT 20
     ''', (match_pattern, match_pattern, match_pattern, match_pattern, match_pattern))
 
-    # Remove the match_type column from results before returning
     results = cursor.fetchall()
     conn.close()
     return results
