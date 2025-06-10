@@ -54,13 +54,36 @@ def calculate_weighted_score(factors, weights):
 def get_weights(cursor, dest_type):
     """Get weights for destination type"""
     if dest_type == 'hotel':
-        cursor.execute('SELECT agoda_score_weight, google_score_weight FROM factor_weights WHERE type = ?', (dest_type,))
+        cursor.execute('SELECT hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight FROM factor_weights WHERE type = ?', (dest_type,))
         weights_result = cursor.fetchone()
-        return list(weights_result) if weights_result else [0, 0]
+        return list(weights_result) if weights_result else [0, 0, 0, 0]
     else:
         cursor.execute('SELECT hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight FROM factor_weights WHERE type = ?', (dest_type,))
         weights_result = cursor.fetchone()
         return list(weights_result) if weights_result else [0, 0, 0, 0]
+
+
+def get_city_normalization_scores(cursor, city_id, country_id):
+    """Get normalization scores for a city"""
+    max_city_hotels, _, _ = get_max_values(cursor)
+    
+    # Get city hotel count
+    cursor.execute('SELECT total_hotels FROM city WHERE id = ?', (city_id,))
+    result = cursor.fetchone()
+    city_hotel_count = result[0] if result else 0
+    
+    # Calculate global hotel normalization
+    global_hotel_normalized = normalize_hotel_count(city_hotel_count, max_city_hotels)
+    
+    # Get max country hotel count
+    cursor.execute('SELECT MAX(total_hotels) FROM city WHERE country_id = ?', (country_id,))
+    result = cursor.fetchone()
+    max_country_hotels = result[0] if result and result[0] else 1
+    
+    # Calculate country hotel normalization
+    country_hotel_normalized = normalize_country_hotel_count(city_hotel_count, max_country_hotels)
+    
+    return global_hotel_normalized, country_hotel_normalized
 
 
 def calculate_location_score(cursor, dest_type, dest_id, city_id, area_id, country_id):
@@ -105,29 +128,32 @@ def calculate_location_score(cursor, dest_type, dest_id, city_id, area_id, count
     )
 
 
-def calculate_hotel_score(cursor, hotel_id, country_id):
-    """Calculate score for hotel destination using only Agoda and Google scores"""
+def calculate_hotel_score(cursor, hotel_id, city_id, country_id):
+    """Calculate score for hotel destination using city normalization + hotel review scores"""
     _, max_agoda, max_google = get_max_values(cursor)
     
-    # Get hotel scores
+    # Get hotel's own review scores
     cursor.execute('SELECT agoda_score, google_score FROM hotel_scores WHERE hotel_id = ?', (hotel_id,))
     result = cursor.fetchone()
     agoda_score, google_score = result if result else (0, 0)
     
-    # Normalize scores
+    # Normalize hotel review scores
     agoda_score_normalized = int((agoda_score / max_agoda) * 100) if agoda_score else 0
     google_score_normalized = int((google_score / max_google) * 100) if google_score else 0
     
-    # Get weights (only Agoda and Google for hotels)
+    # Get city's normalization scores (inherit from parent city)
+    city_global_normalized, city_country_normalized = get_city_normalization_scores(cursor, city_id, country_id)
+    
+    # Get weights (4 factors for hotels: city normalization + hotel review scores)
     weights = get_weights(cursor, 'hotel')
     
-    # Calculate total score with two factors only
-    factors = [agoda_score_normalized, google_score_normalized]
+    # Calculate total score with four factors
+    factors = [city_global_normalized, city_country_normalized, agoda_score_normalized, google_score_normalized]
     total_score = calculate_weighted_score(factors, weights)
     
     return (
-        0,  # hotel_count_normalized (not applicable for hotels)
-        0,  # country_hotel_count_normalized (not applicable for hotels)
+        city_global_normalized,  # Inherited from city
+        city_country_normalized,  # Inherited from city
         agoda_score_normalized,
         google_score_normalized,
         0,  # expenditure_score_normalized (not used for hotels)

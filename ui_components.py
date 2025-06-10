@@ -51,10 +51,10 @@ def render_sidebar():
         }
     if "hotel" not in current_weights:
         current_weights["hotel"] = {
-            "hotel_count_weight": 0,
-            "country_hotel_count_weight": 0,
-            "agoda_score_weight": 0.5,
-            "google_score_weight": 0.5,
+            "hotel_count_weight": 0.25,
+            "country_hotel_count_weight": 0.25,
+            "agoda_score_weight": 0.25,
+            "google_score_weight": 0.25,
             "expenditure_score_weight": 0,
             "departure_score_weight": 0,
         }
@@ -64,7 +64,7 @@ def render_sidebar():
         """
     Customize the importance of each factor for optimal search results:
     - **Cities & Areas**: Hotel count normalization + outbound tourism factors
-    - **Hotels**: Review scores only (Agoda + Google)
+    - **Hotels**: City hotel normalization + individual review scores
     
     *Adjust weights below to fine-tune your search experience.*
     """
@@ -77,13 +77,32 @@ def render_sidebar():
 
         with st.sidebar.form(f"{dest_type}_weight_form"):
             if dest_type == "hotel":
-                # Hotel-specific weights (Agoda and Google scores only)
+                # Hotel-specific weights (4 factors: city normalization + hotel review scores)
+                hotel_count_weight = st.slider(
+                    f"Global Hotel Normalization:",
+                    0.0,
+                    1.0,
+                    float(current_weights[dest_type]["hotel_count_weight"]),
+                    0.05,
+                    help="Inherits the global hotel count normalization from the hotel's city"
+                )
+
+                country_hotel_count_weight = st.slider(
+                    f"Country Hotel Normalization:",
+                    0.0,
+                    1.0,
+                    float(current_weights[dest_type]["country_hotel_count_weight"]),
+                    0.05,
+                    help="Inherits the country hotel count normalization from the hotel's city"
+                )
+
                 agoda_score_weight = st.slider(
                     f"Agoda Score Weight:",
                     0.0,
                     1.0,
                     float(current_weights[dest_type]["agoda_score_weight"]),
                     0.05,
+                    help="Hotel's individual Agoda review score"
                 )
 
                 google_score_weight = st.slider(
@@ -92,10 +111,11 @@ def render_sidebar():
                     1.0,
                     float(current_weights[dest_type]["google_score_weight"]),
                     0.05,
+                    help="Hotel's individual Google review score"
                 )
 
                 # Show weight sum for validation
-                weight_sum = agoda_score_weight + google_score_weight
+                weight_sum = hotel_count_weight + country_hotel_count_weight + agoda_score_weight + google_score_weight
                 if weight_sum > 0:
                     st.write(f"Weight Sum: {weight_sum:.2f}")
 
@@ -106,6 +126,8 @@ def render_sidebar():
                 if submit_weights:
                     if update_weights(
                         dest_type, 
+                        hotel_count_weight=hotel_count_weight,
+                        country_hotel_count_weight=country_hotel_count_weight,
                         agoda_score_weight=agoda_score_weight, 
                         google_score_weight=google_score_weight
                     ):
@@ -258,10 +280,10 @@ def render_search_results(results):
                 if row["Type"] == "hotel":
                     weights_display.append({
                         "Type": row["Type"],
+                        "Global Hotel Count": f"{row['Weight: Hotel Count']:.2f}",
+                        "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.2f}",
                         "Agoda Score": f"{row['Weight: Agoda Score']:.2f}",
-                        "Google Score": f"{row['Weight: Google Score']:.2f}",
-                        "Expenditure Score": "N/A",
-                        "Departure Score": "N/A"
+                        "Google Score": f"{row['Weight: Google Score']:.2f}"
                     })
                 else:
                     weights_display.append({

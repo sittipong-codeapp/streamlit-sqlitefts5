@@ -20,10 +20,12 @@ def update_weights(dest_type, hotel_count_weight=0, country_hotel_count_weight=0
     if dest_type == "hotel":
         cursor.execute('''
             UPDATE factor_weights
-            SET agoda_score_weight = ?,
+            SET hotel_count_weight = ?,
+                country_hotel_count_weight = ?,
+                agoda_score_weight = ?,
                 google_score_weight = ?
             WHERE type = ?
-        ''', (agoda_score_weight, google_score_weight, dest_type))
+        ''', (hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, dest_type))
     else:
         cursor.execute('''
             UPDATE factor_weights
@@ -36,7 +38,7 @@ def update_weights(dest_type, hotel_count_weight=0, country_hotel_count_weight=0
 
     # Recalculate scores based on destination type
     if dest_type == "hotel":
-        _recalculate_hotel_scores(cursor, agoda_score_weight, google_score_weight)
+        _recalculate_hotel_scores(cursor, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight)
     else:
         _recalculate_location_scores(cursor, dest_type, hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight)
 
@@ -45,8 +47,8 @@ def update_weights(dest_type, hotel_count_weight=0, country_hotel_count_weight=0
     return True
 
 
-def _recalculate_hotel_scores(cursor, agoda_score_weight, google_score_weight):
-    """Recalculate scores for hotels based on agoda and google scores only"""
+def _recalculate_hotel_scores(cursor, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight):
+    """Recalculate scores for hotels based on city normalization scores + hotel review scores"""
     
     # Get max scores for normalization
     cursor.execute("SELECT MAX(agoda_score), MAX(google_score) FROM hotel_scores")
@@ -56,17 +58,17 @@ def _recalculate_hotel_scores(cursor, agoda_score_weight, google_score_weight):
 
     # Get all hotel destinations using the offset
     cursor.execute('''
-        SELECT d.id as destination_id, d.country_id
+        SELECT d.id as destination_id, d.country_id, d.city_id
         FROM destination d
         WHERE d.type = 'hotel'
     ''')
     hotel_destinations = cursor.fetchall()
 
-    for destination_id, country_id in hotel_destinations:
+    for destination_id, country_id, city_id in hotel_destinations:
         # Get original hotel ID by removing offset
         hotel_id = destination_id - 20000
         
-        # Get hotel scores
+        # Get hotel's own review scores
         cursor.execute('SELECT agoda_score, google_score FROM hotel_scores WHERE hotel_id = ?', (hotel_id,))
         result = cursor.fetchone()
         if result:
@@ -74,27 +76,65 @@ def _recalculate_hotel_scores(cursor, agoda_score_weight, google_score_weight):
         else:
             agoda_score, google_score = 0, 0
         
-        # Normalize scores (0-100 scale)
+        # Normalize hotel review scores (0-100 scale)
         agoda_normalized = int((agoda_score / max_agoda_score) * 100) if agoda_score else 0
         google_normalized = int((google_score / max_google_score) * 100) if google_score else 0
         
-        # Calculate weighted total score with two factors only
+        # Get the city's hotel normalization scores (inherit from parent city)
+        cursor.execute('''
+            SELECT s.hotel_count_normalized, s.country_hotel_count_normalized
+            FROM destination d
+            JOIN destination_score s ON d.id = s.destination_id
+            WHERE d.city_id = ? AND d.type = 'city'
+        ''', (city_id,))
+        city_result = cursor.fetchone()
+        
+        if city_result:
+            city_hotel_count_normalized, city_country_hotel_count_normalized = city_result
+        else:
+            # Fallback: calculate city scores if not found
+            cursor.execute('SELECT total_hotels FROM city WHERE id = ?', (city_id,))
+            city_hotel_result = cursor.fetchone()
+            city_hotel_count = city_hotel_result[0] if city_hotel_result else 0
+            
+            # Get max city hotels for normalization
+            cursor.execute('SELECT MAX(total_hotels) FROM city')
+            max_city_result = cursor.fetchone()
+            max_city_hotels = max_city_result[0] if max_city_result and max_city_result[0] else 1
+            
+            city_hotel_count_normalized = int((city_hotel_count / max_city_hotels) * 100)
+            
+            # Get country normalization
+            cursor.execute('SELECT MAX(total_hotels) FROM city WHERE country_id = ?', (country_id,))
+            max_country_result = cursor.fetchone()
+            max_country_hotels = max_country_result[0] if max_country_result and max_country_result[0] else 1
+            
+            city_country_hotel_count_normalized = (
+                int((city_hotel_count / max_country_hotels) * 100)
+                if max_country_hotels > 200
+                else 0
+            )
+        
+        # Calculate weighted total score with four factors
         weighted_sum = (
+            (city_hotel_count_normalized * hotel_count_weight) + 
+            (city_country_hotel_count_normalized * country_hotel_count_weight) +
             (agoda_normalized * agoda_score_weight) + 
             (google_normalized * google_score_weight)
         )
-        factor_sum = agoda_score_weight + google_score_weight
+        factor_sum = hotel_count_weight + country_hotel_count_weight + agoda_score_weight + google_score_weight
         
         total_score = weighted_sum / factor_sum if factor_sum > 0 else 0
 
-        # Update score for hotel using destination_id, with 0 for unused factors
+        # Update score for hotel using destination_id
         cursor.execute('''
             INSERT OR REPLACE INTO destination_score 
             (destination_id, hotel_count_normalized, country_hotel_count_normalized, 
              agoda_score_normalized, google_score_normalized, expenditure_score_normalized, 
              departure_score_normalized, total_score)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (destination_id, 0, 0, agoda_normalized, google_normalized, 0, 0, total_score))
+        ''', (destination_id, city_hotel_count_normalized, city_country_hotel_count_normalized, 
+              agoda_normalized, google_normalized, 0, 0, total_score))
 
 
 def _recalculate_location_scores(cursor, dest_type, hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight):
