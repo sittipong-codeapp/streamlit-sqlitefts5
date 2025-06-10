@@ -90,7 +90,7 @@ def init_database():
         )
     ''')
 
-    # Create the factor weights table (now with 4 factors)
+    # Create the factor weights table (all destination types now have 6 factors)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS factor_weights (
             type TEXT PRIMARY KEY,  -- 'city', 'area', or 'hotel'
@@ -103,7 +103,7 @@ def init_database():
         )
     ''')
 
-    # Create the score table (normalized factors and total score, now with 4 factors)
+    # Create the score table (normalized factors and total score, all with 6 factors)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS destination_score (
             destination_id INTEGER PRIMARY KEY,
@@ -373,17 +373,19 @@ def init_database():
         area_expenditure_weight = 0.05  # Expenditure score weight for areas
         area_departure_weight = 0.05  # Departure score weight for areas
 
-        # Hotels now use 4 factors: city normalization + hotel review scores
+        # Hotels now use 6 factors: city normalization + hotel review scores + country outbound scores
         hotel_global_weight = 0.0  # Global hotel count weight for hotels (inherited from city)
         hotel_country_weight = 0.0  # Country hotel count weight for hotels (inherited from city)
         hotel_agoda_weight = 0.0  # Agoda score weight for hotels
         hotel_google_weight = 0.0  # Google score weight for hotels
+        hotel_expenditure_weight = 0.0  # Expenditure score weight for hotels (inherited from country)
+        hotel_departure_weight = 0.0  # Departure score weight for hotels (inherited from country)
 
-        # Insert default factor weights
+        # Insert default factor weights (all destination types now have 6 factors)
         default_weights = [
             ('city', city_hotel_count_weight, city_country_hotel_count_weight, 0, 0, city_expenditure_weight, city_departure_weight),
             ('area', area_hotel_count_weight, area_country_hotel_count_weight, 0, 0, area_expenditure_weight, area_departure_weight),
-            ('hotel', hotel_global_weight, hotel_country_weight, hotel_agoda_weight, hotel_google_weight, 0, 0),  # Hotels use 4 factors
+            ('hotel', hotel_global_weight, hotel_country_weight, hotel_agoda_weight, hotel_google_weight, hotel_expenditure_weight, hotel_departure_weight),
         ]
         cursor.executemany(
             'INSERT INTO factor_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -416,7 +418,7 @@ def init_database():
 
         for dest_id, dest_type, country_id, city_id, area_id in destinations:
             if dest_type == 'hotel':
-                # **Hotel scores calculation (4 factors: city normalization + hotel review scores)**
+                # **Hotel scores calculation (6 factors: city normalization + hotel review scores + country outbound scores)**
                 hotel_id = dest_id - 20000  # Remove offset to get original hotel ID
                 
                 # Get hotel's own review scores
@@ -453,14 +455,29 @@ def init_database():
                     city_hotel_count_normalized = 0
                     city_country_hotel_count_normalized = 0
                 
-                # Calculate weighted total score with four factors
+                # Get outbound scores for this country (inherit from parent country)
+                cursor.execute(
+                    'SELECT expenditure_score, departure_score FROM country_outbound WHERE country_id = ?',
+                    (country_id,)
+                )
+                outbound_result = cursor.fetchone()
+                if outbound_result:
+                    expenditure_score_normalized = int(outbound_result[0])
+                    departure_score_normalized = int(outbound_result[1])
+                else:
+                    expenditure_score_normalized = 0
+                    departure_score_normalized = 0
+                
+                # Calculate weighted total score with six factors
                 weighted_sum = (
                     (city_hotel_count_normalized * hotel_global_weight) + 
                     (city_country_hotel_count_normalized * hotel_country_weight) +
                     (agoda_normalized * hotel_agoda_weight) + 
-                    (google_normalized * hotel_google_weight)
+                    (google_normalized * hotel_google_weight) +
+                    (expenditure_score_normalized * hotel_expenditure_weight) +
+                    (departure_score_normalized * hotel_departure_weight)
                 )
-                factor_sum = hotel_global_weight + hotel_country_weight + hotel_agoda_weight + hotel_google_weight
+                factor_sum = hotel_global_weight + hotel_country_weight + hotel_agoda_weight + hotel_google_weight + hotel_expenditure_weight + hotel_departure_weight
                 
                 total_score = weighted_sum / factor_sum if factor_sum > 0 else 0
 
@@ -469,16 +486,16 @@ def init_database():
                         dest_id,
                         city_hotel_count_normalized,  # Inherited from city
                         city_country_hotel_count_normalized,  # Inherited from city
-                        agoda_normalized,
-                        google_normalized,
-                        0,  # expenditure_score_normalized (not used for hotels)
-                        0,  # departure_score_normalized (not used for hotels)
+                        agoda_normalized,  # Hotel-specific
+                        google_normalized,  # Hotel-specific
+                        expenditure_score_normalized,  # Inherited from country
+                        departure_score_normalized,  # Inherited from country
                         total_score,
                     )
                 )
                 
             else:
-                # **Existing logic for cities and areas**
+                # **Existing logic for cities and areas (4 factors)**
                 # Get hotel count from appropriate location table using direct queries
                 if dest_type == 'city':
                     cursor.execute('SELECT total_hotels FROM city WHERE id = ?', (city_id,))

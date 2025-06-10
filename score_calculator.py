@@ -54,10 +54,12 @@ def calculate_weighted_score(factors, weights):
 def get_weights(cursor, dest_type):
     """Get weights for destination type"""
     if dest_type == 'hotel':
-        cursor.execute('SELECT hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight FROM factor_weights WHERE type = ?', (dest_type,))
+        # Hotels now use all 6 factors
+        cursor.execute('SELECT hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight FROM factor_weights WHERE type = ?', (dest_type,))
         weights_result = cursor.fetchone()
-        return list(weights_result) if weights_result else [0, 0, 0, 0]
+        return list(weights_result) if weights_result else [0, 0, 0, 0, 0, 0]
     else:
+        # Cities and areas use 4 factors (hotel counts + outbound scores)
         cursor.execute('SELECT hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight FROM factor_weights WHERE type = ?', (dest_type,))
         weights_result = cursor.fetchone()
         return list(weights_result) if weights_result else [0, 0, 0, 0]
@@ -87,7 +89,7 @@ def get_city_normalization_scores(cursor, city_id, country_id):
 
 
 def calculate_location_score(cursor, dest_type, dest_id, city_id, area_id, country_id):
-    """Calculate score for city or area destination"""
+    """Calculate score for city or area destination (4 factors)"""
     max_city_hotels, _, _ = get_max_values(cursor)
     
     # Get hotel count based on destination type
@@ -110,7 +112,7 @@ def calculate_location_score(cursor, dest_type, dest_id, city_id, area_id, count
     country_hotel_count_normalized = normalize_country_hotel_count(hotel_count, max_country_hotels)
     expenditure_score_normalized, departure_score_normalized = get_outbound_scores(cursor, country_id)
     
-    # Get weights
+    # Get weights (4 factors for cities/areas)
     weights = get_weights(cursor, dest_type)
     
     # Calculate total score
@@ -129,7 +131,7 @@ def calculate_location_score(cursor, dest_type, dest_id, city_id, area_id, count
 
 
 def calculate_hotel_score(cursor, hotel_id, city_id, country_id):
-    """Calculate score for hotel destination using city normalization + hotel review scores"""
+    """Calculate score for hotel destination using 6 factors: city normalization + hotel review scores + country outbound scores"""
     _, max_agoda, max_google = get_max_values(cursor)
     
     # Get hotel's own review scores
@@ -144,19 +146,29 @@ def calculate_hotel_score(cursor, hotel_id, city_id, country_id):
     # Get city's normalization scores (inherit from parent city)
     city_global_normalized, city_country_normalized = get_city_normalization_scores(cursor, city_id, country_id)
     
-    # Get weights (4 factors for hotels: city normalization + hotel review scores)
+    # Get country outbound scores (inherit from parent country)
+    expenditure_score_normalized, departure_score_normalized = get_outbound_scores(cursor, country_id)
+    
+    # Get weights (6 factors for hotels)
     weights = get_weights(cursor, 'hotel')
     
-    # Calculate total score with four factors
-    factors = [city_global_normalized, city_country_normalized, agoda_score_normalized, google_score_normalized]
+    # Calculate total score with six factors
+    factors = [
+        city_global_normalized, 
+        city_country_normalized, 
+        agoda_score_normalized, 
+        google_score_normalized,
+        expenditure_score_normalized,
+        departure_score_normalized
+    ]
     total_score = calculate_weighted_score(factors, weights)
     
     return (
-        city_global_normalized,  # Inherited from city
-        city_country_normalized,  # Inherited from city
-        agoda_score_normalized,
-        google_score_normalized,
-        0,  # expenditure_score_normalized (not used for hotels)
-        0,  # departure_score_normalized (not used for hotels)
+        city_global_normalized,     # Inherited from city
+        city_country_normalized,    # Inherited from city
+        agoda_score_normalized,     # Hotel-specific
+        google_score_normalized,    # Hotel-specific
+        expenditure_score_normalized,  # Inherited from country
+        departure_score_normalized,    # Inherited from country
         total_score
     )

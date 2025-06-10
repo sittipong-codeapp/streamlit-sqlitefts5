@@ -51,12 +51,12 @@ def render_sidebar():
         }
     if "hotel" not in current_weights:
         current_weights["hotel"] = {
-            "hotel_count_weight": 0.25,
-            "country_hotel_count_weight": 0.25,
-            "agoda_score_weight": 0.25,
-            "google_score_weight": 0.25,
-            "expenditure_score_weight": 0,
-            "departure_score_weight": 0,
+            "hotel_count_weight": 0.167,  # ~1/6 for balanced 6-factor weighting
+            "country_hotel_count_weight": 0.167,
+            "agoda_score_weight": 0.167,
+            "google_score_weight": 0.167,
+            "expenditure_score_weight": 0.166,
+            "departure_score_weight": 0.166,
         }
 
     # Weight adjustment forms - one for each destination type
@@ -64,7 +64,7 @@ def render_sidebar():
         """
     Customize the importance of each factor for optimal search results:
     - **Cities & Areas**: Hotel count normalization + outbound tourism factors
-    - **Hotels**: City hotel normalization + individual review scores
+    - **Hotels**: City hotel normalization + individual review scores + outbound tourism factors
     
     *Adjust weights below to fine-tune your search experience.*
     """
@@ -77,7 +77,7 @@ def render_sidebar():
 
         with st.sidebar.form(f"{dest_type}_weight_form"):
             if dest_type == "hotel":
-                # Hotel-specific weights (4 factors: city normalization + hotel review scores)
+                # Hotel-specific weights (6 factors: city normalization + hotel review scores + outbound scores)
                 hotel_count_weight = st.slider(
                     f"Global Hotel Normalization:",
                     0.0,
@@ -114,8 +114,26 @@ def render_sidebar():
                     help="Hotel's individual Google review score"
                 )
 
+                expenditure_score_weight = st.slider(
+                    f"Expenditure Score Weight:",
+                    0.0,
+                    1.0,
+                    float(current_weights[dest_type]["expenditure_score_weight"]),
+                    0.05,
+                    help="Inherits the outbound tourism expenditure score from the hotel's country"
+                )
+
+                departure_score_weight = st.slider(
+                    f"Departure Score Weight:",
+                    0.0,
+                    1.0,
+                    float(current_weights[dest_type]["departure_score_weight"]),
+                    0.05,
+                    help="Inherits the outbound tourism departure score from the hotel's country"
+                )
+
                 # Show weight sum for validation
-                weight_sum = hotel_count_weight + country_hotel_count_weight + agoda_score_weight + google_score_weight
+                weight_sum = hotel_count_weight + country_hotel_count_weight + agoda_score_weight + google_score_weight + expenditure_score_weight + departure_score_weight
                 if weight_sum > 0:
                     st.write(f"Weight Sum: {weight_sum:.2f}")
 
@@ -129,7 +147,9 @@ def render_sidebar():
                         hotel_count_weight=hotel_count_weight,
                         country_hotel_count_weight=country_hotel_count_weight,
                         agoda_score_weight=agoda_score_weight, 
-                        google_score_weight=google_score_weight
+                        google_score_weight=google_score_weight,
+                        expenditure_score_weight=expenditure_score_weight,
+                        departure_score_weight=departure_score_weight
                     ):
                         st.sidebar.success(
                             f"{dest_type.title()} weights updated successfully!"
@@ -278,20 +298,24 @@ def render_search_results(results):
             weights_display = []
             for _, row in weights_df.iterrows():
                 if row["Type"] == "hotel":
+                    # Hotels show all 6 factors
                     weights_display.append({
                         "Type": row["Type"],
-                        "Global Hotel Count": f"{row['Weight: Hotel Count']:.2f}",
-                        "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.2f}",
-                        "Agoda Score": f"{row['Weight: Agoda Score']:.2f}",
-                        "Google Score": f"{row['Weight: Google Score']:.2f}"
+                        "Global Hotel Count": f"{row['Weight: Hotel Count']:.3f}",
+                        "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.3f}",
+                        "Agoda Score": f"{row['Weight: Agoda Score']:.3f}",
+                        "Google Score": f"{row['Weight: Google Score']:.3f}",
+                        "Expenditure Score": f"{row['Weight: Expenditure Score']:.3f}",
+                        "Departure Score": f"{row['Weight: Departure Score']:.3f}"
                     })
                 else:
+                    # Cities and areas show 4 factors
                     weights_display.append({
                         "Type": row["Type"],
-                        "Global Hotel Count": f"{row['Weight: Hotel Count']:.2f}",
-                        "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.2f}",
-                        "Expenditure Score": f"{row['Weight: Expenditure Score']:.2f}",
-                        "Departure Score": f"{row['Weight: Departure Score']:.2f}"
+                        "Global Hotel Count": f"{row['Weight: Hotel Count']:.3f}",
+                        "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.3f}",
+                        "Expenditure Score": f"{row['Weight: Expenditure Score']:.3f}",
+                        "Departure Score": f"{row['Weight: Departure Score']:.3f}"
                     })
             
             weights_display_df = pd.DataFrame(weights_display)

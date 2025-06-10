@@ -17,28 +17,21 @@ def update_weights(dest_type, hotel_count_weight=0, country_hotel_count_weight=0
         return False
 
     # Update the weights for the specified destination type
-    if dest_type == "hotel":
-        cursor.execute('''
-            UPDATE factor_weights
-            SET hotel_count_weight = ?,
-                country_hotel_count_weight = ?,
-                agoda_score_weight = ?,
-                google_score_weight = ?
-            WHERE type = ?
-        ''', (hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, dest_type))
-    else:
-        cursor.execute('''
-            UPDATE factor_weights
-            SET hotel_count_weight = ?,
-                country_hotel_count_weight = ?,
-                expenditure_score_weight = ?,
-                departure_score_weight = ?
-            WHERE type = ?
-        ''', (hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight, dest_type))
+    # All destination types now use all 6 weights
+    cursor.execute('''
+        UPDATE factor_weights
+        SET hotel_count_weight = ?,
+            country_hotel_count_weight = ?,
+            agoda_score_weight = ?,
+            google_score_weight = ?,
+            expenditure_score_weight = ?,
+            departure_score_weight = ?
+        WHERE type = ?
+    ''', (hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight, dest_type))
 
     # Recalculate scores based on destination type
     if dest_type == "hotel":
-        _recalculate_hotel_scores(cursor, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight)
+        _recalculate_hotel_scores(cursor, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight)
     else:
         _recalculate_location_scores(cursor, dest_type, hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight)
 
@@ -47,8 +40,8 @@ def update_weights(dest_type, hotel_count_weight=0, country_hotel_count_weight=0
     return True
 
 
-def _recalculate_hotel_scores(cursor, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight):
-    """Recalculate scores for hotels based on city normalization scores + hotel review scores"""
+def _recalculate_hotel_scores(cursor, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight):
+    """Recalculate scores for hotels based on 6 factors: city normalization + hotel review scores + country outbound scores"""
     
     # Get max scores for normalization
     cursor.execute("SELECT MAX(agoda_score), MAX(google_score) FROM hotel_scores")
@@ -115,14 +108,29 @@ def _recalculate_hotel_scores(cursor, hotel_count_weight, country_hotel_count_we
                 else 0
             )
         
-        # Calculate weighted total score with four factors
+        # Get outbound scores for this country (inherit from parent country)
+        cursor.execute(
+            'SELECT expenditure_score, departure_score FROM country_outbound WHERE country_id = ?',
+            (country_id,)
+        )
+        outbound_result = cursor.fetchone()
+        if outbound_result:
+            expenditure_score_normalized = int(outbound_result[0])
+            departure_score_normalized = int(outbound_result[1])
+        else:
+            expenditure_score_normalized = 0
+            departure_score_normalized = 0
+        
+        # Calculate weighted total score with six factors
         weighted_sum = (
             (city_hotel_count_normalized * hotel_count_weight) + 
             (city_country_hotel_count_normalized * country_hotel_count_weight) +
             (agoda_normalized * agoda_score_weight) + 
-            (google_normalized * google_score_weight)
+            (google_normalized * google_score_weight) +
+            (expenditure_score_normalized * expenditure_score_weight) +
+            (departure_score_normalized * departure_score_weight)
         )
-        factor_sum = hotel_count_weight + country_hotel_count_weight + agoda_score_weight + google_score_weight
+        factor_sum = hotel_count_weight + country_hotel_count_weight + agoda_score_weight + google_score_weight + expenditure_score_weight + departure_score_weight
         
         total_score = weighted_sum / factor_sum if factor_sum > 0 else 0
 
@@ -134,11 +142,11 @@ def _recalculate_hotel_scores(cursor, hotel_count_weight, country_hotel_count_we
              departure_score_normalized, total_score)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (destination_id, city_hotel_count_normalized, city_country_hotel_count_normalized, 
-              agoda_normalized, google_normalized, 0, 0, total_score))
+              agoda_normalized, google_normalized, expenditure_score_normalized, departure_score_normalized, total_score))
 
 
 def _recalculate_location_scores(cursor, dest_type, hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight):
-    """Recalculate scores for cities and areas with four factors"""
+    """Recalculate scores for cities and areas with four factors (agoda and google scores are not applicable)"""
     
     # Get max city hotel count for normalization
     cursor.execute("SELECT MAX(total_hotels) FROM city")
@@ -193,7 +201,7 @@ def _recalculate_location_scores(cursor, dest_type, hotel_count_weight, country_
             expenditure_score_normalized = 0
             departure_score_normalized = 0
 
-        # Calculate weighted total score with four factors
+        # Calculate weighted total score with four factors (agoda and google scores are 0 for cities/areas)
         weighted_sum = (
             (hotel_count_normalized * hotel_count_weight) + 
             (country_hotel_count_normalized * country_hotel_count_weight) +
@@ -204,10 +212,11 @@ def _recalculate_location_scores(cursor, dest_type, hotel_count_weight, country_
 
         total_score = weighted_sum / factor_sum if factor_sum > 0 else 0
 
-        # Update the score
+        # Update the score (agoda and google scores remain 0 for cities/areas)
         cursor.execute('''
             UPDATE destination_score
             SET hotel_count_normalized = ?, country_hotel_count_normalized = ?, 
+                agoda_score_normalized = 0, google_score_normalized = 0,
                 expenditure_score_normalized = ?, departure_score_normalized = ?, total_score = ?
             WHERE destination_id = ?
         ''', (hotel_count_normalized, country_hotel_count_normalized, expenditure_score_normalized, departure_score_normalized, total_score, dest_id))

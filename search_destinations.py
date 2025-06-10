@@ -12,8 +12,9 @@ def search_destinations(query):
     # 2. Direct area name match (FTS search)
     # 3. Cities by country name match (FTS search on country names)
     # 4. Areas by city name match (FTS search on city names)
+    # 5. Direct hotel name match (FTS search) - now with 6-factor scoring
     cursor.execute('''
-        -- direct_city
+        -- direct_city (4 factors: hotel counts + outbound scores)
         SELECT DISTINCT
             'city' as type,
             ci.name, 
@@ -45,7 +46,7 @@ def search_destinations(query):
         
         UNION
         
-        -- direct_area
+        -- direct_area (4 factors: hotel counts + outbound scores)
         SELECT DISTINCT
             'area' as type,
             ar.name, 
@@ -78,7 +79,7 @@ def search_destinations(query):
 
         UNION
         
-        -- city_by_country_fts
+        -- city_by_country_fts (4 factors: hotel counts + outbound scores)
         SELECT DISTINCT
             'city' as type,
             ci.name, 
@@ -110,7 +111,7 @@ def search_destinations(query):
         
         UNION
         
-        -- area_by_city_fts
+        -- area_by_city_fts (4 factors: hotel counts + outbound scores)
         SELECT DISTINCT
             'area' as type,
             ar.name, 
@@ -143,7 +144,7 @@ def search_destinations(query):
         
         UNION
         
-        -- direct_hotel
+        -- direct_hotel (6 factors: city normalization + hotel review scores + country outbound scores)
         SELECT DISTINCT
             'hotel' as type,
             h.name, 
