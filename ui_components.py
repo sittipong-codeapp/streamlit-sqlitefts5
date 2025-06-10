@@ -78,144 +78,153 @@ def render_sidebar():
         with st.sidebar.form(f"{dest_type}_weight_form"):
             if dest_type == "hotel":
                 # Hotel-specific weights (6 factors: city normalization + hotel review scores + outbound scores)
-                hotel_count_weight = st.slider(
+                hotel_count_weight = st.text_input(
                     f"Global Hotel Normalization:",
-                    0.0,
-                    1.0,
-                    float(current_weights[dest_type]["hotel_count_weight"]),
-                    0.05,
+                    value=str(current_weights[dest_type]["hotel_count_weight"]),
                     help="Inherits the global hotel count normalization from the hotel's city"
                 )
 
-                country_hotel_count_weight = st.slider(
+                country_hotel_count_weight = st.text_input(
                     f"Country Hotel Normalization:",
-                    0.0,
-                    1.0,
-                    float(current_weights[dest_type]["country_hotel_count_weight"]),
-                    0.05,
+                    value=str(current_weights[dest_type]["country_hotel_count_weight"]),
                     help="Inherits the country hotel count normalization from the hotel's city"
                 )
 
-                agoda_score_weight = st.slider(
+                agoda_score_weight = st.text_input(
                     f"Agoda Score Weight:",
-                    0.0,
-                    1.0,
-                    float(current_weights[dest_type]["agoda_score_weight"]),
-                    0.05,
+                    value=str(current_weights[dest_type]["agoda_score_weight"]),
                     help="Hotel's individual Agoda review score"
                 )
 
-                google_score_weight = st.slider(
+                google_score_weight = st.text_input(
                     f"Google Score Weight:",
-                    0.0,
-                    1.0,
-                    float(current_weights[dest_type]["google_score_weight"]),
-                    0.05,
+                    value=str(current_weights[dest_type]["google_score_weight"]),
                     help="Hotel's individual Google review score"
                 )
 
-                expenditure_score_weight = st.slider(
+                expenditure_score_weight = st.text_input(
                     f"Expenditure Score Weight:",
-                    0.0,
-                    1.0,
-                    float(current_weights[dest_type]["expenditure_score_weight"]),
-                    0.05,
+                    value=str(current_weights[dest_type]["expenditure_score_weight"]),
                     help="Inherits the outbound tourism expenditure score from the hotel's country"
                 )
 
-                departure_score_weight = st.slider(
+                departure_score_weight = st.text_input(
                     f"Departure Score Weight:",
-                    0.0,
-                    1.0,
-                    float(current_weights[dest_type]["departure_score_weight"]),
-                    0.05,
+                    value=str(current_weights[dest_type]["departure_score_weight"]),
                     help="Inherits the outbound tourism departure score from the hotel's country"
                 )
 
-                # Show weight sum for validation
-                weight_sum = hotel_count_weight + country_hotel_count_weight + agoda_score_weight + google_score_weight + expenditure_score_weight + departure_score_weight
-                if weight_sum > 0:
-                    st.write(f"Weight Sum: {weight_sum:.2f}")
+                # Convert string inputs to float and show weight sum for validation
+                try:
+                    weight_sum = (
+                        float(hotel_count_weight) + 
+                        float(country_hotel_count_weight) + 
+                        float(agoda_score_weight) + 
+                        float(google_score_weight) + 
+                        float(expenditure_score_weight) + 
+                        float(departure_score_weight)
+                    )
+                    st.write(f"Weight Sum: {weight_sum:.4f}")
+                except ValueError:
+                    st.write("Invalid weight values entered")
+                    weight_sum = 0
 
                 submit_weights = st.form_submit_button(
                     f"Update {dest_type.title()} Weights"
                 )
 
                 if submit_weights:
-                    if update_weights(
-                        dest_type, 
-                        hotel_count_weight=hotel_count_weight,
-                        country_hotel_count_weight=country_hotel_count_weight,
-                        agoda_score_weight=agoda_score_weight, 
-                        google_score_weight=google_score_weight,
-                        expenditure_score_weight=expenditure_score_weight,
-                        departure_score_weight=departure_score_weight
-                    ):
-                        st.sidebar.success(
-                            f"{dest_type.title()} weights updated successfully!"
-                        )
-                    else:
-                        st.sidebar.error(
-                            f"Failed to update {dest_type.title()} weights. Make sure values are between 0 and 1."
-                        )
+                    try:
+                        # Convert string inputs to float
+                        hotel_count_weight_float = float(hotel_count_weight)
+                        country_hotel_count_weight_float = float(country_hotel_count_weight)
+                        agoda_score_weight_float = float(agoda_score_weight)
+                        google_score_weight_float = float(google_score_weight)
+                        expenditure_score_weight_float = float(expenditure_score_weight)
+                        departure_score_weight_float = float(departure_score_weight)
+
+                        if update_weights(
+                            dest_type, 
+                            hotel_count_weight=hotel_count_weight_float,
+                            country_hotel_count_weight=country_hotel_count_weight_float,
+                            agoda_score_weight=agoda_score_weight_float, 
+                            google_score_weight=google_score_weight_float,
+                            expenditure_score_weight=expenditure_score_weight_float,
+                            departure_score_weight=departure_score_weight_float
+                        ):
+                            st.sidebar.success(
+                                f"{dest_type.title()} weights updated successfully!"
+                            )
+                        else:
+                            st.sidebar.error(
+                                f"Failed to update {dest_type.title()} weights. Make sure values are between 0 and 1."
+                            )
+                    except ValueError:
+                        st.sidebar.error("Please enter valid numeric values for all weights.")
+
             else:
                 # City/Area weights (hotel count normalization + outbound scores)
-                hotel_count_weight = st.slider(
+                hotel_count_weight = st.text_input(
                     f"Global Hotel Normalization:",
-                    0.0,
-                    1.0,
-                    float(current_weights[dest_type]["hotel_count_weight"]),
-                    0.05,
+                    value=str(current_weights[dest_type]["hotel_count_weight"]),
                 )
 
-                country_hotel_count_weight = st.slider(
+                country_hotel_count_weight = st.text_input(
                     f"Country Hotel Normalization:",
-                    0.0,
-                    1.0,
-                    float(current_weights[dest_type]["country_hotel_count_weight"]),
-                    0.05,
+                    value=str(current_weights[dest_type]["country_hotel_count_weight"]),
                 )
 
-                expenditure_score_weight = st.slider(
+                expenditure_score_weight = st.text_input(
                     f"Expenditure Score Weight:",
-                    0.0,
-                    1.0,
-                    float(current_weights[dest_type]["expenditure_score_weight"]),
-                    0.05,
+                    value=str(current_weights[dest_type]["expenditure_score_weight"]),
                 )
 
-                departure_score_weight = st.slider(
+                departure_score_weight = st.text_input(
                     f"Departure Score Weight:",
-                    0.0,
-                    1.0,
-                    float(current_weights[dest_type]["departure_score_weight"]),
-                    0.05,
+                    value=str(current_weights[dest_type]["departure_score_weight"]),
                 )
 
-                # Show weight sum for validation
-                weight_sum = hotel_count_weight + country_hotel_count_weight + expenditure_score_weight + departure_score_weight
-                if weight_sum > 0:
-                    st.write(f"Weight Sum: {weight_sum:.2f}")
+                # Convert string inputs to float and show weight sum for validation
+                try:
+                    weight_sum = (
+                        float(hotel_count_weight) + 
+                        float(country_hotel_count_weight) + 
+                        float(expenditure_score_weight) + 
+                        float(departure_score_weight)
+                    )
+                    st.write(f"Weight Sum: {weight_sum:.4f}")
+                except ValueError:
+                    st.write("Invalid weight values entered")
+                    weight_sum = 0
 
                 submit_weights = st.form_submit_button(
                     f"Update {dest_type.title()} Weights"
                 )
 
                 if submit_weights:
-                    if update_weights(
-                        dest_type, 
-                        hotel_count_weight=hotel_count_weight, 
-                        country_hotel_count_weight=country_hotel_count_weight,
-                        expenditure_score_weight=expenditure_score_weight,
-                        departure_score_weight=departure_score_weight
-                    ):
-                        st.sidebar.success(
-                            f"{dest_type.title()} weights updated successfully!"
-                        )
-                    else:
-                        st.sidebar.error(
-                            f"Failed to update {dest_type.title()} weights. Make sure values are between 0 and 1."
-                        )
+                    try:
+                        # Convert string inputs to float
+                        hotel_count_weight_float = float(hotel_count_weight)
+                        country_hotel_count_weight_float = float(country_hotel_count_weight)
+                        expenditure_score_weight_float = float(expenditure_score_weight)
+                        departure_score_weight_float = float(departure_score_weight)
+
+                        if update_weights(
+                            dest_type, 
+                            hotel_count_weight=hotel_count_weight_float, 
+                            country_hotel_count_weight=country_hotel_count_weight_float,
+                            expenditure_score_weight=expenditure_score_weight_float,
+                            departure_score_weight=departure_score_weight_float
+                        ):
+                            st.sidebar.success(
+                                f"{dest_type.title()} weights updated successfully!"
+                            )
+                        else:
+                            st.sidebar.error(
+                                f"Failed to update {dest_type.title()} weights. Make sure values are between 0 and 1."
+                            )
+                    except ValueError:
+                        st.sidebar.error("Please enter valid numeric values for all weights.")
 
 
 def render_search_results(results):
@@ -281,7 +290,7 @@ def render_search_results(results):
             display_df,
             column_config={
                 "Display Name": st.column_config.TextColumn(width="medium"),
-                "Total Score": st.column_config.NumberColumn(format="%.2f"),
+                "Total Score": st.column_config.NumberColumn(format="%.4f"),
             },
         )
 
@@ -301,21 +310,21 @@ def render_search_results(results):
                     # Hotels show all 6 factors
                     weights_display.append({
                         "Type": row["Type"],
-                        "Global Hotel Count": f"{row['Weight: Hotel Count']:.3f}",
-                        "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.3f}",
-                        "Agoda Score": f"{row['Weight: Agoda Score']:.3f}",
-                        "Google Score": f"{row['Weight: Google Score']:.3f}",
-                        "Expenditure Score": f"{row['Weight: Expenditure Score']:.3f}",
-                        "Departure Score": f"{row['Weight: Departure Score']:.3f}"
+                        "Global Hotel Count": f"{row['Weight: Hotel Count']:.4f}",
+                        "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.4f}",
+                        "Agoda Score": f"{row['Weight: Agoda Score']:.4f}",
+                        "Google Score": f"{row['Weight: Google Score']:.4f}",
+                        "Expenditure Score": f"{row['Weight: Expenditure Score']:.4f}",
+                        "Departure Score": f"{row['Weight: Departure Score']:.4f}"
                     })
                 else:
                     # Cities and areas show 4 factors
                     weights_display.append({
                         "Type": row["Type"],
-                        "Global Hotel Count": f"{row['Weight: Hotel Count']:.3f}",
-                        "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.3f}",
-                        "Expenditure Score": f"{row['Weight: Expenditure Score']:.3f}",
-                        "Departure Score": f"{row['Weight: Departure Score']:.3f}"
+                        "Global Hotel Count": f"{row['Weight: Hotel Count']:.4f}",
+                        "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.4f}",
+                        "Expenditure Score": f"{row['Weight: Expenditure Score']:.4f}",
+                        "Departure Score": f"{row['Weight: Departure Score']:.4f}"
                     })
             
             weights_display_df = pd.DataFrame(weights_display)
