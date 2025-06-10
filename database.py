@@ -364,22 +364,22 @@ def init_database():
 
         # Set default weights
         city_hotel_count_weight = 1.0  # Global hotel count weight for cities
-        city_country_hotel_count_weight = 0.25  # Country hotel count weight for cities
-        city_expenditure_weight = 0.05  # Expenditure score weight for cities
-        city_departure_weight = 0.05  # Departure score weight for cities
+        city_country_hotel_count_weight = 0.0625  # Country hotel count weight for cities
+        city_expenditure_weight = 0.025  # Expenditure score weight for cities
+        city_departure_weight = 0.025  # Departure score weight for cities
 
         area_hotel_count_weight = 1.0  # Global hotel count weight for areas
-        area_country_hotel_count_weight = 0.25  # Country hotel count weight for areas
-        area_expenditure_weight = 0.05  # Expenditure score weight for areas
-        area_departure_weight = 0.05  # Departure score weight for areas
+        area_country_hotel_count_weight = 0.625  # Country hotel count weight for areas
+        area_expenditure_weight = 0.025  # Expenditure score weight for areas
+        area_departure_weight = 0.025  # Departure score weight for areas
 
         # Hotels now use 6 factors: city normalization + hotel review scores + country outbound scores
-        hotel_global_weight = 0.0  # Global hotel count weight for hotels (inherited from city)
-        hotel_country_weight = 0.0  # Country hotel count weight for hotels (inherited from city)
-        hotel_agoda_weight = 0.0  # Agoda score weight for hotels
-        hotel_google_weight = 0.0  # Google score weight for hotels
-        hotel_expenditure_weight = 0.0  # Expenditure score weight for hotels (inherited from country)
-        hotel_departure_weight = 0.0  # Departure score weight for hotels (inherited from country)
+        hotel_global_weight = 0.001  # Global hotel count weight for hotels (inherited from city)
+        hotel_country_weight = 0.001  # Country hotel count weight for hotels (inherited from city)
+        hotel_agoda_weight = 0.001  # Agoda score weight for hotels
+        hotel_google_weight = 0.001  # Google score weight for hotels
+        hotel_expenditure_weight = 0.001  # Expenditure score weight for hotels (inherited from country)
+        hotel_departure_weight = 0.001  # Departure score weight for hotels (inherited from country)
 
         # Insert default factor weights (all destination types now have 6 factors)
         default_weights = [
