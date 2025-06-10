@@ -62,7 +62,7 @@ def load_csv_data():
         except Exception as e:
             print(f'Error reading area file: {e}')
 
-    # Load hotel
+    # Load hotel - **FIX: Handle NULL/empty area_id**
     hotels = {}
     hotel_file = os.path.join(data_dir, 'hotel.csv')
     if os.path.exists(hotel_file):
@@ -71,16 +71,23 @@ def load_csv_data():
                 reader = csv.DictReader(f)
                 for row in reader:
                     try:
+                        # Handle empty area_id values
+                        area_id = None
+                        if row.get('area_id') and row['area_id'].strip():
+                            try:
+                                area_id = int(row['area_id'])
+                            except ValueError:
+                                area_id = None
+                        
                         hotels[int(row['id'])] = {
                             'name': row['name'],
                             'city_id': int(row['city_id']),
-                            'area_id': int(row['area_id']),
+                            'area_id': area_id,  # Can be None
                         }
                     except (ValueError, KeyError) as e:
                         continue  # Skip invalid rows
         except Exception as e:
             print(f'Error reading hotel file: {e}')
-
 
     # Load destinations
     destinations = []
@@ -136,6 +143,7 @@ def load_csv_data():
         for country_id, country_name in country_names:
             countries[country_id] = {'name': country_name, 'total_hotels': 0}
 
+    # Load hotel scores
     hotel_scores = {}
     hotel_scores_file = os.path.join(data_dir, 'top_100_hotel.csv')
     if os.path.exists(hotel_scores_file):
@@ -194,6 +202,20 @@ def get_sample_data():
         3: {'name': 'Central Park', 'city_id': 3, 'total_hotels': 50},
         4: {'name': 'Shibuya Crossing', 'city_id': 4, 'total_hotels': 25},
     }
+    # **FIX: Add sample hotels data**
+    hotels_data = {
+        1: {'name': 'Hotel Le Meurice', 'city_id': 1, 'area_id': 1},
+        2: {'name': 'The Ritz London', 'city_id': 2, 'area_id': 2},
+        3: {'name': 'The Plaza', 'city_id': 3, 'area_id': 3},
+        4: {'name': 'Park Hyatt Tokyo', 'city_id': 4, 'area_id': 4},
+    }
+    # **FIX: Add sample hotel scores data**
+    hotel_scores_data = {
+        1: {'agoda_score': 95.0, 'google_score': 87.0},
+        2: {'agoda_score': 92.0, 'google_score': 89.0},
+        3: {'agoda_score': 88.0, 'google_score': 85.0},
+        4: {'agoda_score': 90.0, 'google_score': 91.0},
+    }
     country_outbound_data = {
         1: {'expenditure_score': 50.0, 'departure_score': 40.0},
         2: {'expenditure_score': 45.0, 'departure_score': 35.0},
@@ -201,4 +223,4 @@ def get_sample_data():
         4: {'expenditure_score': 55.0, 'departure_score': 38.0},
     }
     
-    return countries_data, cities_data, areas_data, {}, [], {}, country_outbound_data
+    return countries_data, cities_data, areas_data, hotels_data, [], hotel_scores_data, country_outbound_data

@@ -236,7 +236,7 @@ def init_database():
                 ),
             )
 
-        # Process destinations from CSV or create from cities/areas
+        # Process destinations from CSV or create from cities/areas/hotels
         destinations_to_insert = []
 
         if destinations_data:
@@ -313,6 +313,22 @@ def init_database():
                         )
                     )
 
+        # **FIX: Create hotel destinations with +20000 offset**
+        for hotel_id, hotel_info in hotels_data.items():
+            # Get country_id from the hotel's city
+            city_info = cities_data.get(hotel_info['city_id'])
+            if city_info:
+                destinations_to_insert.append(
+                    (
+                        hotel_id + 20000,  # Offset to match search query
+                        hotel_info['name'],
+                        city_info['country_id'],
+                        hotel_info['city_id'],
+                        hotel_info['area_id'],
+                        'hotel',
+                    )
+                )
+
         # Insert destinations
         for dest_data in destinations_to_insert:
             cursor.execute(
@@ -384,6 +400,8 @@ def init_database():
         # Get max scores for normalization
         cursor.execute("SELECT MAX(agoda_score), MAX(google_score) FROM hotel_scores")
         result = cursor.fetchone()
+        max_agoda_score = result[0] if result and result[0] else 100
+        max_google_score = result[1] if result and result[1] else 100
 
         # Create scores with normalized values from location tables
         scores = []
@@ -396,95 +414,150 @@ def init_database():
         destinations = cursor.fetchall()
 
         for dest_id, dest_type, country_id, city_id, area_id in destinations:
-            # Get hotel count from appropriate location table using direct queries
-            if dest_type == 'city':
-                cursor.execute('SELECT total_hotels FROM city WHERE id = ?', (city_id,))
+            if dest_type == 'hotel':
+                # **FIX: Calculate hotel scores**
+                hotel_id = dest_id - 20000  # Remove offset to get original hotel ID
+                
+                # Get hotel scores
+                cursor.execute('SELECT agoda_score, google_score FROM hotel_scores WHERE hotel_id = ?', (hotel_id,))
                 result = cursor.fetchone()
-                hotel_count = result[0] if result else 0
-                # Normalize city hotel count: city.total_hotels / max(city.total_hotels)
-                hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
-
-                # Get max hotel count within the same country for country normalization
+                if result:
+                    agoda_score, google_score = result
+                else:
+                    agoda_score, google_score = 0, 0
+                
+                # Normalize scores (0-100 scale)
+                agoda_normalized = int((agoda_score / max_agoda_score) * 100) if agoda_score else 0
+                google_normalized = int((google_score / max_google_score) * 100) if google_score else 0
+                
+                # Get outbound scores for this country
                 cursor.execute(
-                    'SELECT MAX(total_hotels) FROM city WHERE country_id = ?',
-                    (country_id,),
+                    'SELECT expenditure_score, departure_score FROM country_outbound WHERE country_id = ?',
+                    (country_id,)
                 )
-                result = cursor.fetchone()
-                max_country_city_hotels = result[0] if result and result[0] else 1
-                country_hotel_count_normalized = (
-                    int((hotel_count / max_country_city_hotels) * 100)
-                    if max_country_city_hotels > 200
-                    else 0
+                outbound_result = cursor.fetchone()
+                if outbound_result:
+                    expenditure_score_normalized = int(outbound_result[0])
+                    departure_score_normalized = int(outbound_result[1])
+                else:
+                    expenditure_score_normalized = 0
+                    departure_score_normalized = 0
+                
+                # Calculate weighted total score with four factors
+                weighted_sum = (
+                    (agoda_normalized * hotel_agoda_weight) + 
+                    (google_normalized * hotel_google_weight) +
+                    (expenditure_score_normalized * hotel_expenditure_weight) +
+                    (departure_score_normalized * hotel_departure_weight)
                 )
-            else:  # area
-                # For areas, count actual hotels in this area
-                cursor.execute('SELECT COUNT(*) FROM hotel WHERE area_id = ?', (area_id,))
-                result = cursor.fetchone()
-                hotel_count = result[0] if result else 0
-                # Normalize area hotel count: area hotel count / max(city.total_hotels)
-                hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
+                factor_sum = hotel_agoda_weight + hotel_google_weight + hotel_expenditure_weight + hotel_departure_weight
+                
+                total_score = weighted_sum / factor_sum if factor_sum > 0 else 0
 
-                # Get max hotel count within the same country for country normalization
-                cursor.execute(
-                    'SELECT MAX(total_hotels) FROM city WHERE country_id = ?',
-                    (country_id,),
+                scores.append(
+                    (
+                        dest_id,
+                        0,  # hotel_count_normalized (not applicable for hotels)
+                        0,  # country_hotel_count_normalized (not applicable for hotels)
+                        agoda_normalized,
+                        google_normalized,
+                        expenditure_score_normalized,
+                        departure_score_normalized,
+                        total_score,
+                    )
                 )
-                result = cursor.fetchone()
-                max_country_city_hotels = result[0] if result and result[0] else 1
-                country_hotel_count_normalized = (
-                    int((hotel_count / max_country_city_hotels) * 100)
-                    if max_country_city_hotels > 200
-                    else 0
-                )
-
-            # Get outbound scores for this country (already normalized to 0-100)
-            cursor.execute(
-                'SELECT expenditure_score, departure_score FROM country_outbound WHERE country_id = ?',
-                (country_id,)
-            )
-            outbound_result = cursor.fetchone()
-            if outbound_result:
-                expenditure_score_normalized = int(outbound_result[0])
-                departure_score_normalized = int(outbound_result[1])
+                
             else:
-                expenditure_score_normalized = 0
-                departure_score_normalized = 0
+                # **Existing logic for cities and areas**
+                # Get hotel count from appropriate location table using direct queries
+                if dest_type == 'city':
+                    cursor.execute('SELECT total_hotels FROM city WHERE id = ?', (city_id,))
+                    result = cursor.fetchone()
+                    hotel_count = result[0] if result else 0
+                    # Normalize city hotel count: city.total_hotels / max(city.total_hotels)
+                    hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
 
-            # Get weights for this destination type
-            if dest_type == 'city':
-                hotel_count_weight = city_hotel_count_weight
-                country_hotel_count_weight = city_country_hotel_count_weight
-                expenditure_weight = city_expenditure_weight
-                departure_weight = city_departure_weight
-            else:  # area
-                hotel_count_weight = area_hotel_count_weight
-                country_hotel_count_weight = area_country_hotel_count_weight
-                expenditure_weight = area_expenditure_weight
-                departure_weight = area_departure_weight
+                    # Get max hotel count within the same country for country normalization
+                    cursor.execute(
+                        'SELECT MAX(total_hotels) FROM city WHERE country_id = ?',
+                        (country_id,),
+                    )
+                    result = cursor.fetchone()
+                    max_country_city_hotels = result[0] if result and result[0] else 1
+                    country_hotel_count_normalized = (
+                        int((hotel_count / max_country_city_hotels) * 100)
+                        if max_country_city_hotels > 200
+                        else 0
+                    )
+                else:  # area
+                    # For areas, count actual hotels in this area
+                    cursor.execute('SELECT COUNT(*) FROM hotel WHERE area_id = ?', (area_id,))
+                    result = cursor.fetchone()
+                    hotel_count = result[0] if result else 0
+                    # Normalize area hotel count: area hotel count / max(city.total_hotels)
+                    hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
 
-            # Calculate weighted total score with four factors
-            weighted_sum = (
-                (hotel_count_normalized * hotel_count_weight) + 
-                (country_hotel_count_normalized * country_hotel_count_weight) +
-                (expenditure_score_normalized * expenditure_weight) +
-                (departure_score_normalized * departure_weight)
-            )
-            factor_sum = hotel_count_weight + country_hotel_count_weight + expenditure_weight + departure_weight
+                    # Get max hotel count within the same country for country normalization
+                    cursor.execute(
+                        'SELECT MAX(total_hotels) FROM city WHERE country_id = ?',
+                        (country_id,),
+                    )
+                    result = cursor.fetchone()
+                    max_country_city_hotels = result[0] if result and result[0] else 1
+                    country_hotel_count_normalized = (
+                        int((hotel_count / max_country_city_hotels) * 100)
+                        if max_country_city_hotels > 200
+                        else 0
+                    )
 
-            total_score = weighted_sum / factor_sum if factor_sum > 0 else 0
-
-            scores.append(
-                (
-                    dest_id,
-                    hotel_count_normalized,
-                    country_hotel_count_normalized,
-                    0,  # agoda_score_normalized (not applicable for cities/areas)
-                    0,  # google_score_normalized (not applicable for cities/areas)
-                    expenditure_score_normalized,
-                    departure_score_normalized,
-                    total_score,
+                # Get outbound scores for this country (already normalized to 0-100)
+                cursor.execute(
+                    'SELECT expenditure_score, departure_score FROM country_outbound WHERE country_id = ?',
+                    (country_id,)
                 )
-            )
+                outbound_result = cursor.fetchone()
+                if outbound_result:
+                    expenditure_score_normalized = int(outbound_result[0])
+                    departure_score_normalized = int(outbound_result[1])
+                else:
+                    expenditure_score_normalized = 0
+                    departure_score_normalized = 0
+
+                # Get weights for this destination type
+                if dest_type == 'city':
+                    hotel_count_weight = city_hotel_count_weight
+                    country_hotel_count_weight = city_country_hotel_count_weight
+                    expenditure_weight = city_expenditure_weight
+                    departure_weight = city_departure_weight
+                else:  # area
+                    hotel_count_weight = area_hotel_count_weight
+                    country_hotel_count_weight = area_country_hotel_count_weight
+                    expenditure_weight = area_expenditure_weight
+                    departure_weight = area_departure_weight
+
+                # Calculate weighted total score with four factors
+                weighted_sum = (
+                    (hotel_count_normalized * hotel_count_weight) + 
+                    (country_hotel_count_normalized * country_hotel_count_weight) +
+                    (expenditure_score_normalized * expenditure_weight) +
+                    (departure_score_normalized * departure_weight)
+                )
+                factor_sum = hotel_count_weight + country_hotel_count_weight + expenditure_weight + departure_weight
+
+                total_score = weighted_sum / factor_sum if factor_sum > 0 else 0
+
+                scores.append(
+                    (
+                        dest_id,
+                        hotel_count_normalized,
+                        country_hotel_count_normalized,
+                        0,  # agoda_score_normalized (not applicable for cities/areas)
+                        0,  # google_score_normalized (not applicable for cities/areas)
+                        expenditure_score_normalized,
+                        departure_score_normalized,
+                        total_score,
+                    )
+                )
 
         # Insert scores with all four factors
         cursor.executemany(
