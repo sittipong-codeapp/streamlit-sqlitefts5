@@ -15,7 +15,7 @@ def main():
     init_database()
 
     # Web interface
-    st.title("🔍 Search Suggestion Sandbox")
+    st.title(" Search Suggestion Sandbox")
 
     # Render sidebar with weight configuration
     render_sidebar()
