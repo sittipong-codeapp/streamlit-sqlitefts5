@@ -1,20 +1,18 @@
 from database import get_connection
 
 
-# Function to search destinations
 def search_destinations(query):
+    """
+    Simplified FTS search that returns raw normalized data without score calculations.
+    Scoring will be done in Python afterward.
+    """
     conn = get_connection()
     cursor = conn.cursor()
     match_pattern = f"{query}*"
 
-    # Enhanced search with multiple FTS strategies:
-    # 1. Direct city name match (FTS search)
-    # 2. Direct area name match (FTS search)
-    # 3. Cities by country name match (FTS search on country names)
-    # 4. Areas by city name match (FTS search on city names)
-    # 5. Direct hotel name match (FTS search) - now with 6-factor scoring
+    # Much simpler FTS query - just get raw normalized data, no score calculations
     cursor.execute('''
-        -- direct_city (4 factors: hotel counts + outbound scores)
+        -- direct_city: Get cities matching query
         SELECT DISTINCT
             'city' as type,
             ci.name, 
@@ -22,31 +20,28 @@ def search_destinations(query):
             ci.name as city_name,
             NULL as area_name,
             ci.total_hotels as hotel_count,
-            s.hotel_count_normalized,
-            s.country_hotel_count_normalized,
-            s.agoda_score_normalized,
-            s.google_score_normalized,
-            s.expenditure_score_normalized,
-            s.departure_score_normalized,
-            s.total_score,
-            w.hotel_count_weight,
-            w.country_hotel_count_weight,
-            w.agoda_score_weight,
-            w.google_score_weight,
-            w.expenditure_score_weight,
-            w.departure_score_weight,
+            ci.id as city_id,
+            co.id as country_id,
+            NULL as area_id,
+            NULL as hotel_id,
+            -- Get pre-normalized scores from destination_score
+            COALESCE(s.hotel_count_normalized, 0) as hotel_count_normalized,
+            COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
+            0 as agoda_score_normalized,  -- Not applicable for cities
+            0 as google_score_normalized,  -- Not applicable for cities
+            COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
+            COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
             co.total_hotels as country_total_hotels
         FROM city ci
         JOIN city_fts fts ON ci.id = fts.rowid
         LEFT JOIN country co ON ci.country_id = co.id
         LEFT JOIN destination d ON d.city_id = ci.id AND d.type = 'city'
         LEFT JOIN destination_score s ON d.id = s.destination_id
-        LEFT JOIN factor_weights w ON w.type = 'city'
         WHERE fts.name MATCH ?
         
         UNION
         
-        -- direct_area (4 factors: hotel counts + outbound scores)
+        -- direct_area: Get areas matching query
         SELECT DISTINCT
             'area' as type,
             ar.name, 
@@ -54,19 +49,16 @@ def search_destinations(query):
             ci.name as city_name,
             ar.name as area_name,
             (SELECT COUNT(*) FROM hotel WHERE area_id = ar.id) as hotel_count,
-            s.hotel_count_normalized,
-            s.country_hotel_count_normalized,
-            s.agoda_score_normalized,
-            s.google_score_normalized,
-            s.expenditure_score_normalized,
-            s.departure_score_normalized,
-            s.total_score,
-            w.hotel_count_weight,
-            w.country_hotel_count_weight,
-            w.agoda_score_weight,
-            w.google_score_weight,
-            w.expenditure_score_weight,
-            w.departure_score_weight,
+            ci.id as city_id,
+            co.id as country_id,
+            ar.id as area_id,
+            NULL as hotel_id,
+            COALESCE(s.hotel_count_normalized, 0) as hotel_count_normalized,
+            COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
+            0 as agoda_score_normalized,  -- Not applicable for areas
+            0 as google_score_normalized,  -- Not applicable for areas
+            COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
+            COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
             co.total_hotels as country_total_hotels
         FROM area ar
         JOIN area_fts fts ON ar.id = fts.rowid
@@ -74,12 +66,11 @@ def search_destinations(query):
         LEFT JOIN country co ON ci.country_id = co.id
         LEFT JOIN destination d ON d.area_id = ar.id AND d.type = 'area'
         LEFT JOIN destination_score s ON d.id = s.destination_id
-        LEFT JOIN factor_weights w ON w.type = 'area'
         WHERE fts.name MATCH ?
 
         UNION
         
-        -- city_by_country_fts (4 factors: hotel counts + outbound scores)
+        -- city_by_country: Get cities when searching by country name
         SELECT DISTINCT
             'city' as type,
             ci.name, 
@@ -87,31 +78,27 @@ def search_destinations(query):
             ci.name as city_name,
             NULL as area_name,
             ci.total_hotels as hotel_count,
-            s.hotel_count_normalized,
-            s.country_hotel_count_normalized,
-            s.agoda_score_normalized,
-            s.google_score_normalized,
-            s.expenditure_score_normalized,
-            s.departure_score_normalized,
-            s.total_score,
-            w.hotel_count_weight,
-            w.country_hotel_count_weight,
-            w.agoda_score_weight,
-            w.google_score_weight,
-            w.expenditure_score_weight,
-            w.departure_score_weight,
+            ci.id as city_id,
+            co.id as country_id,
+            NULL as area_id,
+            NULL as hotel_id,
+            COALESCE(s.hotel_count_normalized, 0) as hotel_count_normalized,
+            COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
+            0 as agoda_score_normalized,
+            0 as google_score_normalized,
+            COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
+            COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
             co.total_hotels as country_total_hotels
         FROM city ci
         LEFT JOIN country co ON ci.country_id = co.id
         JOIN country_fts country_fts ON co.id = country_fts.rowid
         LEFT JOIN destination d ON d.city_id = ci.id AND d.type = 'city'
         LEFT JOIN destination_score s ON d.id = s.destination_id
-        LEFT JOIN factor_weights w ON w.type = 'city'
         WHERE country_fts.name MATCH ?
         
         UNION
         
-        -- area_by_city_fts (4 factors: hotel counts + outbound scores)
+        -- area_by_city: Get areas when searching by city name
         SELECT DISTINCT
             'area' as type,
             ar.name, 
@@ -119,19 +106,16 @@ def search_destinations(query):
             ci.name as city_name,
             ar.name as area_name,
             (SELECT COUNT(*) FROM hotel WHERE area_id = ar.id) as hotel_count,
-            s.hotel_count_normalized,
-            s.country_hotel_count_normalized,
-            s.agoda_score_normalized,
-            s.google_score_normalized,
-            s.expenditure_score_normalized,
-            s.departure_score_normalized,
-            s.total_score,
-            w.hotel_count_weight,
-            w.country_hotel_count_weight,
-            w.agoda_score_weight,
-            w.google_score_weight,
-            w.expenditure_score_weight,
-            w.departure_score_weight,
+            ci.id as city_id,
+            co.id as country_id,
+            ar.id as area_id,
+            NULL as hotel_id,
+            COALESCE(s.hotel_count_normalized, 0) as hotel_count_normalized,
+            COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
+            0 as agoda_score_normalized,
+            0 as google_score_normalized,
+            COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
+            COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
             co.total_hotels as country_total_hotels
         FROM area ar
         LEFT JOIN city ci ON ar.city_id = ci.id
@@ -139,12 +123,11 @@ def search_destinations(query):
         LEFT JOIN country co ON ci.country_id = co.id
         LEFT JOIN destination d ON d.area_id = ar.id AND d.type = 'area'
         LEFT JOIN destination_score s ON d.id = s.destination_id
-        LEFT JOIN factor_weights w ON w.type = 'area'
         WHERE city_fts.name MATCH ?
         
         UNION
         
-        -- direct_hotel (6 factors: city normalization + hotel review scores + country outbound scores)
+        -- direct_hotel: Get hotels matching query
         SELECT DISTINCT
             'hotel' as type,
             h.name, 
@@ -152,19 +135,16 @@ def search_destinations(query):
             ci.name as city_name,
             CASE WHEN ar.name IS NOT NULL THEN ar.name ELSE NULL END as area_name,
             1 as hotel_count,
+            ci.id as city_id,
+            co.id as country_id,
+            ar.id as area_id,
+            h.id as hotel_id,
             COALESCE(s.hotel_count_normalized, 0) as hotel_count_normalized,
             COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
             COALESCE(s.agoda_score_normalized, 0) as agoda_score_normalized,
             COALESCE(s.google_score_normalized, 0) as google_score_normalized,
             COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
             COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
-            COALESCE(s.total_score, 0) as total_score,
-            COALESCE(w.hotel_count_weight, 0) as hotel_count_weight,
-            COALESCE(w.country_hotel_count_weight, 0) as country_hotel_count_weight,
-            COALESCE(w.agoda_score_weight, 0) as agoda_score_weight,
-            COALESCE(w.google_score_weight, 0) as google_score_weight,
-            COALESCE(w.expenditure_score_weight, 0) as expenditure_score_weight,
-            COALESCE(w.departure_score_weight, 0) as departure_score_weight,
             co.total_hotels as country_total_hotels
         FROM hotel h
         JOIN hotel_fts fts ON h.id = fts.rowid
@@ -173,13 +153,22 @@ def search_destinations(query):
         LEFT JOIN country co ON ci.country_id = co.id
         LEFT JOIN destination d ON d.id = (h.id + 20000) AND d.type = 'hotel'
         LEFT JOIN destination_score s ON d.id = s.destination_id
-        LEFT JOIN factor_weights w ON w.type = 'hotel'
         WHERE fts.name MATCH ?
         
-        ORDER BY total_score DESC, hotel_count DESC, type
-        LIMIT 20
+        -- No ORDER BY or LIMIT here - we'll sort in Python after score calculation
     ''', (match_pattern, match_pattern, match_pattern, match_pattern, match_pattern))
 
     results = cursor.fetchall()
     conn.close()
-    return results
+    
+    # Convert to list of dictionaries for easier processing in Python
+    columns = [
+        'type', 'name', 'country_name', 'city_name', 'area_name', 'hotel_count',
+        'city_id', 'country_id', 'area_id', 'hotel_id',
+        'hotel_count_normalized', 'country_hotel_count_normalized',
+        'agoda_score_normalized', 'google_score_normalized',
+        'expenditure_score_normalized', 'departure_score_normalized',
+        'country_total_hotels'
+    ]
+    
+    return [dict(zip(columns, row)) for row in results]
