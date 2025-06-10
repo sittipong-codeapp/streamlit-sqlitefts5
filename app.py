@@ -1,6 +1,6 @@
 import streamlit as st
 from database import init_database
-from search import search_destinations
+from search_destinations import search_destinations
 from ui_components import render_sidebar, render_search_results
 
 
