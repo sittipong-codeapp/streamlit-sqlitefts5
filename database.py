@@ -374,10 +374,10 @@ def init_database():
         area_departure_weight = 0.5  # Departure score weight for areas
 
         # Hotels now use 4 factors: city normalization + hotel review scores
-        hotel_global_weight = 0.25  # Global hotel count weight for hotels (inherited from city)
-        hotel_country_weight = 0.25  # Country hotel count weight for hotels (inherited from city)
-        hotel_agoda_weight = 0.25  # Agoda score weight for hotels
-        hotel_google_weight = 0.25  # Google score weight for hotels
+        hotel_global_weight = 0.5  # Global hotel count weight for hotels (inherited from city)
+        hotel_country_weight = 0.5  # Country hotel count weight for hotels (inherited from city)
+        hotel_agoda_weight = 0.5  # Agoda score weight for hotels
+        hotel_google_weight = 0.5  # Google score weight for hotels
 
         # Insert default factor weights
         default_weights = [
