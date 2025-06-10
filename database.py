@@ -103,6 +103,14 @@ def init_database():
         )
     ''')
 
+    # Create the category weights table (for destination type priority)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS category_weights (
+            type TEXT PRIMARY KEY,  -- 'city', 'area', or 'hotel'
+            weight REAL DEFAULT 1.0
+        )
+    ''')
+
     # Create the destination_score table (stores pre-normalized values, NO total_score)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS destination_score (
@@ -387,15 +395,26 @@ def init_database():
         cursor.execute('INSERT INTO area_fts (rowid, name) SELECT id, name FROM area')
         cursor.execute('INSERT INTO hotel_fts (rowid, name) SELECT id, name FROM hotel')
 
-        # Set default weights (for user preferences)
-        default_weights = [
+        # Set default factor weights (for user preferences)
+        default_factor_weights = [
             ('city', 1.0, 0.625, 0, 0, 0.025, 0.025),
             ('area', 1.0, 0.625, 0, 0, 0.025, 0.025),
             ('hotel', 0.001, 0.001, 0.001, 0.001, 0.001, 0.001),
         ]
         cursor.executemany(
             'INSERT OR IGNORE INTO factor_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            default_weights,
+            default_factor_weights,
+        )
+
+        # Set default category weights (destination type priority)
+        default_category_weights = [
+            ('city', 10.0),   # Cities get highest priority
+            ('area', 1.0),    # Areas get medium priority  
+            ('hotel', 0.1),   # Hotels get lowest priority
+        ]
+        cursor.executemany(
+            'INSERT OR IGNORE INTO category_weights (type, weight) VALUES (?, ?)',
+            default_category_weights,
         )
 
         # Calculate and store ONLY normalized values (no total scores)
@@ -404,6 +423,19 @@ def init_database():
         # Clear the loading message after loading is complete
         if 'st' in globals() and loading_placeholder:
             loading_placeholder.empty()
+
+    # Ensure category weights exist even if data was already loaded (for upgrades)
+    cursor.execute('SELECT COUNT(*) FROM category_weights')
+    if cursor.fetchone()[0] == 0:
+        default_category_weights = [
+            ('city', 10.0),   # Cities get highest priority
+            ('area', 1.0),    # Areas get medium priority  
+            ('hotel', 0.1),   # Hotels get lowest priority
+        ]
+        cursor.executemany(
+            'INSERT OR IGNORE INTO category_weights (type, weight) VALUES (?, ?)',
+            default_category_weights,
+        )
 
     conn.commit()
     conn.close()

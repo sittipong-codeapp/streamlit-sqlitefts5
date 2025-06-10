@@ -1,15 +1,18 @@
 from database import get_connection
 
 
-def calculate_scores_in_memory(fts_results, weights):
+def calculate_scores_in_memory(fts_results, factor_weights, category_weights):
     """
-    Calculate final scores for search results in memory using current weights.
+    Calculate final scores for search results in memory using current factor weights and category weights.
     No database updates - just scoring and ranking.
     """
     if not fts_results:
         return []
     
     scored_results = []
+    
+    # Calculate total category weight for normalization
+    total_category_weight = sum(category_weights.values())
     
     for result in fts_results:
         dest_type = result['type']
@@ -25,8 +28,8 @@ def calculate_scores_in_memory(fts_results, weights):
                 result['departure_score_normalized']
             ]
             
-            hotel_weights = weights['hotel']
-            factor_weights = [
+            hotel_weights = factor_weights['hotel']
+            factor_weight_list = [
                 hotel_weights['hotel_count_weight'],
                 hotel_weights['country_hotel_count_weight'],
                 hotel_weights['agoda_score_weight'],
@@ -44,16 +47,21 @@ def calculate_scores_in_memory(fts_results, weights):
                 result['departure_score_normalized']
             ]
             
-            location_weights = weights[dest_type]  # 'city' or 'area'
-            factor_weights = [
+            location_weights = factor_weights[dest_type]  # 'city' or 'area'
+            factor_weight_list = [
                 location_weights['hotel_count_weight'],
                 location_weights['country_hotel_count_weight'],
                 location_weights['expenditure_score_weight'],
                 location_weights['departure_score_weight']
             ]
         
-        # Calculate weighted score
-        total_score = calculate_weighted_score(factors, factor_weights)
+        # Calculate base weighted score (factor level)
+        base_score = calculate_weighted_score(factors, factor_weight_list)
+        
+        # Apply category weight (destination type level)
+        category_weight = category_weights.get(dest_type, 1.0)
+        category_multiplier = category_weight / total_category_weight if total_category_weight > 0 else 0
+        final_score = base_score * category_multiplier
         
         # Create result tuple in the format expected by UI
         scored_result = (
@@ -69,20 +77,23 @@ def calculate_scores_in_memory(fts_results, weights):
             result['google_score_normalized'],
             result['expenditure_score_normalized'],
             result['departure_score_normalized'],
-            total_score,  # This is the calculated score
-            factor_weights[0] if len(factor_weights) > 0 else 0,  # hotel_count_weight
-            factor_weights[1] if len(factor_weights) > 1 else 0,  # country_hotel_count_weight
-            factor_weights[2] if len(factor_weights) > 2 else 0,  # agoda_score_weight (0 for cities/areas)
-            factor_weights[3] if len(factor_weights) > 3 else 0,  # google_score_weight (0 for cities/areas)
-            factor_weights[4] if len(factor_weights) > 4 else factor_weights[2] if dest_type != 'hotel' else factor_weights[4],  # expenditure_score_weight
-            factor_weights[5] if len(factor_weights) > 5 else factor_weights[3] if dest_type != 'hotel' else factor_weights[5],  # departure_score_weight
-            result['country_total_hotels']
+            final_score,  # This is the final score (base_score × category_multiplier)
+            factor_weight_list[0] if len(factor_weight_list) > 0 else 0,  # hotel_count_weight
+            factor_weight_list[1] if len(factor_weight_list) > 1 else 0,  # country_hotel_count_weight
+            factor_weight_list[2] if len(factor_weight_list) > 2 else 0,  # agoda_score_weight (0 for cities/areas)
+            factor_weight_list[3] if len(factor_weight_list) > 3 else 0,  # google_score_weight (0 for cities/areas)
+            factor_weight_list[4] if len(factor_weight_list) > 4 else factor_weight_list[2] if dest_type != 'hotel' else factor_weight_list[4],  # expenditure_score_weight
+            factor_weight_list[5] if len(factor_weight_list) > 5 else factor_weight_list[3] if dest_type != 'hotel' else factor_weight_list[5],  # departure_score_weight
+            result['country_total_hotels'],
+            base_score,  # Add base score for debugging/display
+            category_weight,  # Add category weight for debugging/display
+            category_multiplier  # Add category multiplier for debugging/display
         )
         
         scored_results.append(scored_result)
     
-    # Sort by total score (descending) and limit to top 20
-    scored_results.sort(key=lambda x: x[12], reverse=True)  # x[12] is total_score
+    # Sort by final score (descending) and limit to top 20
+    scored_results.sort(key=lambda x: x[12], reverse=True)  # x[12] is final_score
     return scored_results[:20]
 
 
@@ -102,7 +113,7 @@ def calculate_weighted_score(factors, weights):
 
 
 def load_weights_from_database():
-    """Load current weights from database into memory structure"""
+    """Load current factor weights from database into memory structure"""
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -132,43 +143,75 @@ def load_weights_from_database():
     # Set defaults if missing
     if 'city' not in weights:
         weights['city'] = {
-            'hotel_count_weight': 0.4,
-            'country_hotel_count_weight': 0.2,
+            'hotel_count_weight': 1.0,
+            'country_hotel_count_weight': 0.625,
             'agoda_score_weight': 0,
             'google_score_weight': 0,
-            'expenditure_score_weight': 0.25,
-            'departure_score_weight': 0.15
+            'expenditure_score_weight': 0.025,
+            'departure_score_weight': 0.025
         }
     
     if 'area' not in weights:
         weights['area'] = {
-            'hotel_count_weight': 0.3,
-            'country_hotel_count_weight': 0.2,
+            'hotel_count_weight': 1.0,
+            'country_hotel_count_weight': 0.625,
             'agoda_score_weight': 0,
             'google_score_weight': 0,
-            'expenditure_score_weight': 0.3,
-            'departure_score_weight': 0.2
+            'expenditure_score_weight': 0.025,
+            'departure_score_weight': 0.025
         }
     
     if 'hotel' not in weights:
         weights['hotel'] = {
-            'hotel_count_weight': 0.167,
-            'country_hotel_count_weight': 0.167,
-            'agoda_score_weight': 0.167,
-            'google_score_weight': 0.167,
-            'expenditure_score_weight': 0.166,
-            'departure_score_weight': 0.166
+            'hotel_count_weight': 0.001,
+            'country_hotel_count_weight': 0.001,
+            'agoda_score_weight': 0.001,
+            'google_score_weight': 0.001,
+            'expenditure_score_weight': 0.001,
+            'departure_score_weight': 0.001
         }
     
     return weights
 
 
-def save_weights_to_database(weights):
-    """Save current in-memory weights back to database"""
+def load_category_weights_from_database():
+    """Load current category weights from database into memory structure"""
     conn = get_connection()
     cursor = conn.cursor()
     
-    for dest_type, weight_dict in weights.items():
+    cursor.execute('''
+        SELECT type, weight FROM category_weights
+    ''')
+    
+    weights_data = cursor.fetchall()
+    conn.close()
+    
+    # Convert to dictionary structure
+    category_weights = {}
+    for row in weights_data:
+        dest_type = row[0]
+        weight = row[1]
+        category_weights[dest_type] = weight
+    
+    # Set defaults if missing
+    if 'city' not in category_weights:
+        category_weights['city'] = 10.0
+    
+    if 'area' not in category_weights:
+        category_weights['area'] = 1.0
+    
+    if 'hotel' not in category_weights:
+        category_weights['hotel'] = 0.1
+    
+    return category_weights
+
+
+def save_weights_to_database(factor_weights):
+    """Save current in-memory factor weights back to database"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    for dest_type, weight_dict in factor_weights.items():
         cursor.execute('''
             INSERT OR REPLACE INTO factor_weights 
             (type, hotel_count_weight, country_hotel_count_weight, 
@@ -184,6 +227,20 @@ def save_weights_to_database(weights):
             weight_dict['expenditure_score_weight'],
             weight_dict['departure_score_weight']
         ))
+    
+    conn.commit()
+    conn.close()
+
+
+def save_category_weights_to_database(category_weights):
+    """Save current in-memory category weights back to database"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    for dest_type, weight in category_weights.items():
+        cursor.execute('''
+            INSERT OR REPLACE INTO category_weights (type, weight) VALUES (?, ?)
+        ''', (dest_type, weight))
     
     conn.commit()
     conn.close()
@@ -226,7 +283,11 @@ def get_country_maxes_from_results(fts_results):
     return country_maxes
 
 
-# Remove the old functions that are no longer needed
-# def update_weights() - REMOVED
-# def _recalculate_hotel_scores() - REMOVED  
-# def _recalculate_location_scores() - REMOVED
+# Backward compatibility function - updates the signature to include category weights
+def calculate_scores_in_memory_legacy(fts_results, weights):
+    """
+    Legacy function for backward compatibility.
+    Loads category weights from database and calls the new function.
+    """
+    category_weights = load_category_weights_from_database()
+    return calculate_scores_in_memory(fts_results, weights, category_weights)

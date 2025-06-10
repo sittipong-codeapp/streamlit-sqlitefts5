@@ -3,23 +3,99 @@ import pandas as pd
 from scoring import calculate_scores_in_memory
 
 
-def render_sidebar(current_weights):
-    """Render the sidebar with weight configuration forms - now updates in-memory weights"""
-    st.sidebar.header("Factor Weight Configuration")
+def render_sidebar(current_factor_weights, current_category_weights):
+    """Render the sidebar with both category weights and factor weight configuration forms"""
+    st.sidebar.header("Weight Configuration")
 
-    # Weight adjustment forms - one for each destination type
+    # Track if any weights were updated
+    category_weights_updated = False
+    factor_weights_updated = False
+
+    # === CATEGORY WEIGHTS SECTION (TOP PRIORITY) ===
+    st.sidebar.subheader("🎯 Category Priority Weights")
     st.sidebar.markdown(
         """
-    Customize the importance of each factor for optimal search results:
-    - **Cities & Areas**: Hotel count normalization + outbound tourism factors
-    - **Hotels**: City hotel normalization + individual review scores + outbound tourism factors
-    
-    *Adjust weights below to fine-tune your search experience.*
-    """
+        *Control the relative importance of destination types:*
+        - **Higher values** = destination type appears higher in results
+        - **Lower values** = destination type appears lower in results
+        """
+    )
+
+    with st.sidebar.form("category_weight_form"):
+        city_weight = st.text_input(
+            "City Weight:", 
+            value=str(current_category_weights['city']),
+            help="Priority weight for cities (default: 10.0 = highest priority)"
+        )
+        area_weight = st.text_input(
+            "Area Weight:", 
+            value=str(current_category_weights['area']),
+            help="Priority weight for areas (default: 1.0 = medium priority)"
+        )
+        hotel_weight = st.text_input(
+            "Hotel Weight:", 
+            value=str(current_category_weights['hotel']),
+            help="Priority weight for hotels (default: 0.1 = lowest priority)"
+        )
+        
+        # Show category weight distribution
+        try:
+            city_weight_float = float(city_weight)
+            area_weight_float = float(area_weight)
+            hotel_weight_float = float(hotel_weight)
+            total = city_weight_float + area_weight_float + hotel_weight_float
+            
+            if total > 0:
+                st.markdown("**Current Distribution:**")
+                st.write(f"🏙️ Cities: {(city_weight_float/total)*100:.1f}%")
+                st.write(f"🗺️ Areas: {(area_weight_float/total)*100:.1f}%")
+                st.write(f"🏨 Hotels: {(hotel_weight_float/total)*100:.1f}%")
+        except ValueError:
+            st.write("Invalid weight values entered")
+        
+        submit_category = st.form_submit_button("Update Category Weights")
+        
+        if submit_category:
+            try:
+                # Convert string inputs to float
+                city_weight_float = float(city_weight)
+                area_weight_float = float(area_weight)
+                hotel_weight_float = float(hotel_weight)
+                
+                # Validate weights (should be >= 0)
+                if all(w >= 0 for w in [city_weight_float, area_weight_float, hotel_weight_float]):
+                    # Update in-memory category weights
+                    current_category_weights.update({
+                        'city': city_weight_float,
+                        'area': area_weight_float,
+                        'hotel': hotel_weight_float
+                    })
+                    st.sidebar.success("Category weights updated successfully!")
+                    category_weights_updated = True
+                    
+                    # Mark that category weights have changed for potential auto-recalculation
+                    st.session_state.category_weights_changed = True
+                else:
+                    st.sidebar.error("All weights must be 0 or greater.")
+                    
+            except ValueError:
+                st.sidebar.error("Please enter valid numeric values for all weights.")
+
+    st.sidebar.divider()
+
+    # === FACTOR WEIGHTS SECTION ===
+    st.sidebar.subheader("⚙️ Factor Weight Configuration")
+    st.sidebar.markdown(
+        """
+        *Fine-tune the importance of each scoring factor within destination types:*
+        - **Cities & Areas**: Hotel count normalization + outbound tourism factors
+        - **Hotels**: City hotel normalization + individual review scores + outbound tourism factors
+        
+        *Adjust weights below to fine-tune your search experience.*
+        """
     )
 
     dest_types = ["city", "area", "hotel"]
-    weights_updated = False
 
     for dest_type in dest_types:
         st.sidebar.subheader(f"{dest_type.title()} Factor Weights")
@@ -29,37 +105,37 @@ def render_sidebar(current_weights):
                 # Hotel-specific weights (6 factors: city normalization + hotel review scores + outbound scores)
                 hotel_count_weight = st.text_input(
                     f"Global Hotel Normalization:",
-                    value=str(current_weights[dest_type]["hotel_count_weight"]),
+                    value=str(current_factor_weights[dest_type]["hotel_count_weight"]),
                     help="Inherits the global hotel count normalization from the hotel's city"
                 )
 
                 country_hotel_count_weight = st.text_input(
                     f"Country Hotel Normalization:",
-                    value=str(current_weights[dest_type]["country_hotel_count_weight"]),
+                    value=str(current_factor_weights[dest_type]["country_hotel_count_weight"]),
                     help="Inherits the country hotel count normalization from the hotel's city"
                 )
 
                 agoda_score_weight = st.text_input(
                     f"Agoda Score Weight:",
-                    value=str(current_weights[dest_type]["agoda_score_weight"]),
+                    value=str(current_factor_weights[dest_type]["agoda_score_weight"]),
                     help="Hotel's individual Agoda review score"
                 )
 
                 google_score_weight = st.text_input(
                     f"Google Score Weight:",
-                    value=str(current_weights[dest_type]["google_score_weight"]),
+                    value=str(current_factor_weights[dest_type]["google_score_weight"]),
                     help="Hotel's individual Google review score"
                 )
 
                 expenditure_score_weight = st.text_input(
                     f"Expenditure Score Weight:",
-                    value=str(current_weights[dest_type]["expenditure_score_weight"]),
+                    value=str(current_factor_weights[dest_type]["expenditure_score_weight"]),
                     help="Inherits the outbound tourism expenditure score from the hotel's country"
                 )
 
                 departure_score_weight = st.text_input(
                     f"Departure Score Weight:",
-                    value=str(current_weights[dest_type]["departure_score_weight"]),
+                    value=str(current_factor_weights[dest_type]["departure_score_weight"]),
                     help="Inherits the outbound tourism departure score from the hotel's country"
                 )
 
@@ -73,7 +149,7 @@ def render_sidebar(current_weights):
                         float(expenditure_score_weight) + 
                         float(departure_score_weight)
                     )
-                    st.write(f"Weight Sum: {weight_sum:.4f}")
+                    st.write(f"Factor Weight Sum: {weight_sum:.4f}")
                 except ValueError:
                     st.write("Invalid weight values entered")
                     weight_sum = 0
@@ -98,7 +174,7 @@ def render_sidebar(current_weights):
                                                    expenditure_score_weight_float, departure_score_weight_float]):
                             
                             # Update in-memory weights - NO DATABASE CALL
-                            current_weights[dest_type].update({
+                            current_factor_weights[dest_type].update({
                                 "hotel_count_weight": hotel_count_weight_float,
                                 "country_hotel_count_weight": country_hotel_count_weight_float,
                                 "agoda_score_weight": agoda_score_weight_float,
@@ -108,11 +184,10 @@ def render_sidebar(current_weights):
                             })
                             
                             st.sidebar.success(f"{dest_type.title()} weights updated successfully!")
-                            weights_updated = True
+                            factor_weights_updated = True
                             
                             # Mark that weights have changed for potential auto-recalculation
-                            if 'search_results_cache' in st.session_state:
-                                st.session_state.weights_changed = True
+                            st.session_state.weights_changed = True
                         else:
                             st.sidebar.error("All weights must be between 0 and 1.")
                             
@@ -123,22 +198,22 @@ def render_sidebar(current_weights):
                 # City/Area weights (4 factors: hotel count normalization + outbound scores)
                 hotel_count_weight = st.text_input(
                     f"Global Hotel Normalization:",
-                    value=str(current_weights[dest_type]["hotel_count_weight"]),
+                    value=str(current_factor_weights[dest_type]["hotel_count_weight"]),
                 )
 
                 country_hotel_count_weight = st.text_input(
                     f"Country Hotel Normalization:",
-                    value=str(current_weights[dest_type]["country_hotel_count_weight"]),
+                    value=str(current_factor_weights[dest_type]["country_hotel_count_weight"]),
                 )
 
                 expenditure_score_weight = st.text_input(
                     f"Expenditure Score Weight:",
-                    value=str(current_weights[dest_type]["expenditure_score_weight"]),
+                    value=str(current_factor_weights[dest_type]["expenditure_score_weight"]),
                 )
 
                 departure_score_weight = st.text_input(
                     f"Departure Score Weight:",
-                    value=str(current_weights[dest_type]["departure_score_weight"]),
+                    value=str(current_factor_weights[dest_type]["departure_score_weight"]),
                 )
 
                 # Convert string inputs to float and show weight sum for validation
@@ -149,7 +224,7 @@ def render_sidebar(current_weights):
                         float(expenditure_score_weight) + 
                         float(departure_score_weight)
                     )
-                    st.write(f"Weight Sum: {weight_sum:.4f}")
+                    st.write(f"Factor Weight Sum: {weight_sum:.4f}")
                 except ValueError:
                     st.write("Invalid weight values entered")
                     weight_sum = 0
@@ -171,7 +246,7 @@ def render_sidebar(current_weights):
                                                    expenditure_score_weight_float, departure_score_weight_float]):
                             
                             # Update in-memory weights - NO DATABASE CALL
-                            current_weights[dest_type].update({
+                            current_factor_weights[dest_type].update({
                                 "hotel_count_weight": hotel_count_weight_float,
                                 "country_hotel_count_weight": country_hotel_count_weight_float,
                                 "expenditure_score_weight": expenditure_score_weight_float,
@@ -179,37 +254,36 @@ def render_sidebar(current_weights):
                             })
                             
                             st.sidebar.success(f"{dest_type.title()} weights updated successfully!")
-                            weights_updated = True
+                            factor_weights_updated = True
                             
                             # Mark that weights have changed for potential auto-recalculation
-                            if 'search_results_cache' in st.session_state:
-                                st.session_state.weights_changed = True
+                            st.session_state.weights_changed = True
                         else:
                             st.sidebar.error("All weights must be between 0 and 1.")
                             
                     except ValueError:
                         st.sidebar.error("Please enter valid numeric values for all weights.")
 
-    return weights_updated
+    return factor_weights_updated, category_weights_updated
 
 
-def render_search_results(fts_results, current_weights):
+def render_search_results(fts_results, current_factor_weights, current_category_weights):
     """
-    Render search results with in-memory score calculation.
+    Render search results with in-memory score calculation using both factor weights and category weights.
     Takes raw FTS results and current weights, calculates scores in Python.
     """
     if not fts_results:
         st.write("No matching destinations found.")
         return
 
-    # Calculate scores in memory using current weights
-    scored_results = calculate_scores_in_memory(fts_results, current_weights)
+    # Calculate scores in memory using current factor weights and category weights
+    scored_results = calculate_scores_in_memory(fts_results, current_factor_weights, current_category_weights)
     
     if not scored_results:
         st.write("No matching destinations found.")
         return
 
-    # Create main results dataframe (same format as before)
+    # Create main results dataframe (enhanced with category weight info)
     df = pd.DataFrame(
         scored_results,
         columns=[
@@ -225,7 +299,7 @@ def render_search_results(fts_results, current_weights):
             "Normalized: Google Score",
             "Normalized: Expenditure Score",
             "Normalized: Departure Score",
-            "Total Score",
+            "Final Score",  # This is now the category-weighted score
             "Weight: Hotel Count",
             "Weight: Country Hotel Count",
             "Weight: Agoda Score",
@@ -233,6 +307,9 @@ def render_search_results(fts_results, current_weights):
             "Weight: Expenditure Score",
             "Weight: Departure Score",
             "Country Total Hotels",
+            "Base Score",           # Score before category weight
+            "Category Weight",      # Raw category weight
+            "Category Multiplier"   # Normalized category multiplier
         ],
     )
 
@@ -248,13 +325,16 @@ def render_search_results(fts_results, current_weights):
 
     st.write(f"Found {len(scored_results)} matching destinations:")
 
-    # Show results with location hierarchy
+    # Show results with location hierarchy and enhanced score info
     display_df = df[
         [
             "Display Name",
             "Type",
             "Country",
-            "Total Score",
+            "Final Score",
+            "Base Score",
+            "Category Weight",
+            "Category Multiplier",
             "Normalized: Hotel Count",
             "Normalized: Country Hotel Count",
             "Normalized: Agoda Score",
@@ -265,29 +345,57 @@ def render_search_results(fts_results, current_weights):
             "Country Total Hotels",
         ]
     ]
+    
     st.dataframe(
         display_df,
         column_config={
             "Display Name": st.column_config.TextColumn(width="medium"),
-            "Total Score": st.column_config.NumberColumn(format="%.4f"),
+            "Final Score": st.column_config.NumberColumn(format="%.4f"),
+            "Base Score": st.column_config.NumberColumn(format="%.4f"),
+            "Category Weight": st.column_config.NumberColumn(format="%.1f"),
+            "Category Multiplier": st.column_config.NumberColumn(format="%.4f"),
         },
     )
 
-    # Show factor weights explanation
-    with st.expander("View Factor Weights for Results"):
+    # Show current weight configuration
+    with st.expander("View Current Weight Configuration"):
+        
+        # === CATEGORY WEIGHTS SECTION ===
+        st.subheader("🎯 Category Priority Weights")
+        
+        category_weights_display = []
+        total_category_weight = sum(current_category_weights.values())
+        
+        for dest_type, weight in current_category_weights.items():
+            percentage = (weight / total_category_weight) * 100 if total_category_weight > 0 else 0
+            category_weights_display.append({
+                "Destination Type": dest_type.title(),
+                "Weight": f"{weight:.1f}",
+                "Distribution": f"{percentage:.1f}%",
+                "Impact": "Higher priority" if weight >= 5.0 else "Medium priority" if weight >= 1.0 else "Lower priority"
+            })
+        
+        category_df = pd.DataFrame(category_weights_display)
+        st.dataframe(category_df, hide_index=True)
+        
+        st.divider()
+        
+        # === FACTOR WEIGHTS SECTION ===
+        st.subheader("⚙️ Factor Weights by Destination Type")
+        
         # Group by type and show weights with appropriate labels
-        weights_df = df[
+        factor_weights_df = df[
             ["Type", "Weight: Hotel Count", "Weight: Country Hotel Count", 
              "Weight: Agoda Score", "Weight: Google Score", 
              "Weight: Expenditure Score", "Weight: Departure Score"]
         ].drop_duplicates()
         
         # Add meaningful column names based on type
-        weights_display = []
-        for _, row in weights_df.iterrows():
+        factor_weights_display = []
+        for _, row in factor_weights_df.iterrows():
             if row["Type"] == "hotel":
                 # Hotels show all 6 factors
-                weights_display.append({
+                factor_weights_display.append({
                     "Type": row["Type"],
                     "Global Hotel Count": f"{row['Weight: Hotel Count']:.4f}",
                     "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.4f}",
@@ -298,13 +406,80 @@ def render_search_results(fts_results, current_weights):
                 })
             else:
                 # Cities and areas show 4 factors
-                weights_display.append({
+                factor_weights_display.append({
                     "Type": row["Type"],
                     "Global Hotel Count": f"{row['Weight: Hotel Count']:.4f}",
                     "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.4f}",
                     "Expenditure Score": f"{row['Weight: Expenditure Score']:.4f}",
-                    "Departure Score": f"{row['Weight: Departure Score']:.4f}"
+                    "Departure Score": f"{row['Weight: Departure Score']:.4f}",
+                    "Agoda Score": "N/A",
+                    "Google Score": "N/A"
                 })
         
-        weights_display_df = pd.DataFrame(weights_display)
-        st.dataframe(weights_display_df, hide_index=True)
+        factor_weights_display_df = pd.DataFrame(factor_weights_display)
+        st.dataframe(factor_weights_display_df, hide_index=True)
+        
+        # === SCORING EXPLANATION ===
+        st.subheader("📊 Scoring Explanation")
+        st.markdown("""
+        **Two-Tier Scoring System:**
+        1. **Base Score** = Weighted average of normalized factors (0-100)
+        2. **Final Score** = Base Score × Category Multiplier
+        
+        **Category Multiplier** = Category Weight ÷ Total Category Weight
+        
+        *This ensures destination types with higher category weights rank higher, even with lower base scores.*
+        """)
+
+    # Show scoring breakdown for top 3 results
+    with st.expander("View Detailed Scoring for Top 3 Results"):
+        top_3 = df.head(3)
+        
+        for i, (_, row) in enumerate(top_3.iterrows(), 1):
+            st.markdown(f"**#{i}: {row['Display Name']} ({row['Type'].title()})**")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Final Score", f"{row['Final Score']:.4f}")
+            
+            with col2:
+                st.metric("Base Score", f"{row['Base Score']:.4f}")
+            
+            with col3:
+                st.metric("Category Multiplier", f"{row['Category Multiplier']:.4f}")
+            
+            # Show factor breakdown
+            if row['Type'] == 'hotel':
+                factors = [
+                    ("Global Hotel Count", row['Normalized: Hotel Count'], row['Weight: Hotel Count']),
+                    ("Country Hotel Count", row['Normalized: Country Hotel Count'], row['Weight: Country Hotel Count']),
+                    ("Agoda Score", row['Normalized: Agoda Score'], row['Weight: Agoda Score']),
+                    ("Google Score", row['Normalized: Google Score'], row['Weight: Google Score']),
+                    ("Expenditure Score", row['Normalized: Expenditure Score'], row['Weight: Expenditure Score']),
+                    ("Departure Score", row['Normalized: Departure Score'], row['Weight: Departure Score'])
+                ]
+            else:
+                factors = [
+                    ("Global Hotel Count", row['Normalized: Hotel Count'], row['Weight: Hotel Count']),
+                    ("Country Hotel Count", row['Normalized: Country Hotel Count'], row['Weight: Country Hotel Count']),
+                    ("Expenditure Score", row['Normalized: Expenditure Score'], row['Weight: Expenditure Score']),
+                    ("Departure Score", row['Normalized: Departure Score'], row['Weight: Departure Score'])
+                ]
+            
+            factor_breakdown = []
+            for factor_name, normalized_value, weight in factors:
+                if weight > 0:  # Only show factors with non-zero weights
+                    weighted_contribution = normalized_value * weight
+                    factor_breakdown.append({
+                        "Factor": factor_name,
+                        "Normalized Value": f"{normalized_value:.0f}",
+                        "Weight": f"{weight:.4f}",
+                        "Contribution": f"{weighted_contribution:.2f}"
+                    })
+            
+            if factor_breakdown:
+                factor_df = pd.DataFrame(factor_breakdown)
+                st.dataframe(factor_df, hide_index=True)
+            
+            st.markdown("---")
