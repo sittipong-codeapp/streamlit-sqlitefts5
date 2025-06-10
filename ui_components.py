@@ -53,10 +53,10 @@ def render_sidebar():
         current_weights["hotel"] = {
             "hotel_count_weight": 0,
             "country_hotel_count_weight": 0,
-            "agoda_score_weight": 0.3,
-            "google_score_weight": 0.2,
-            "expenditure_score_weight": 0.3,
-            "departure_score_weight": 0.2,
+            "agoda_score_weight": 0.5,
+            "google_score_weight": 0.5,
+            "expenditure_score_weight": 0,
+            "departure_score_weight": 0,
         }
 
     # Weight adjustment forms - one for each destination type
@@ -64,7 +64,7 @@ def render_sidebar():
         """
     Customize the importance of each factor for optimal search results:
     - **Cities & Areas**: Hotel count normalization + outbound tourism factors
-    - **Hotels**: Review scores + outbound tourism factors
+    - **Hotels**: Review scores only (Agoda + Google)
     
     *Adjust weights below to fine-tune your search experience.*
     """
@@ -77,7 +77,7 @@ def render_sidebar():
 
         with st.sidebar.form(f"{dest_type}_weight_form"):
             if dest_type == "hotel":
-                # Hotel-specific weights (Agoda, Google, Expenditure, Departure scores)
+                # Hotel-specific weights (Agoda and Google scores only)
                 agoda_score_weight = st.slider(
                     f"Agoda Score Weight:",
                     0.0,
@@ -94,24 +94,8 @@ def render_sidebar():
                     0.05,
                 )
 
-                expenditure_score_weight = st.slider(
-                    f"Expenditure Score Weight:",
-                    0.0,
-                    1.0,
-                    float(current_weights[dest_type]["expenditure_score_weight"]),
-                    0.05,
-                )
-
-                departure_score_weight = st.slider(
-                    f"Departure Score Weight:",
-                    0.0,
-                    1.0,
-                    float(current_weights[dest_type]["departure_score_weight"]),
-                    0.05,
-                )
-
                 # Show weight sum for validation
-                weight_sum = agoda_score_weight + google_score_weight + expenditure_score_weight + departure_score_weight
+                weight_sum = agoda_score_weight + google_score_weight
                 if weight_sum > 0:
                     st.write(f"Weight Sum: {weight_sum:.2f}")
 
@@ -123,9 +107,7 @@ def render_sidebar():
                     if update_weights(
                         dest_type, 
                         agoda_score_weight=agoda_score_weight, 
-                        google_score_weight=google_score_weight,
-                        expenditure_score_weight=expenditure_score_weight,
-                        departure_score_weight=departure_score_weight
+                        google_score_weight=google_score_weight
                     ):
                         st.sidebar.success(
                             f"{dest_type.title()} weights updated successfully!"
@@ -278,8 +260,8 @@ def render_search_results(results):
                         "Type": row["Type"],
                         "Agoda Score": f"{row['Weight: Agoda Score']:.2f}",
                         "Google Score": f"{row['Weight: Google Score']:.2f}",
-                        "Expenditure Score": f"{row['Weight: Expenditure Score']:.2f}",
-                        "Departure Score": f"{row['Weight: Departure Score']:.2f}"
+                        "Expenditure Score": "N/A",
+                        "Departure Score": "N/A"
                     })
                 else:
                     weights_display.append({

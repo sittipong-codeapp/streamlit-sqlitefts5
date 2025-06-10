@@ -54,12 +54,13 @@ def calculate_weighted_score(factors, weights):
 def get_weights(cursor, dest_type):
     """Get weights for destination type"""
     if dest_type == 'hotel':
-        cursor.execute('SELECT agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight FROM factor_weights WHERE type = ?', (dest_type,))
+        cursor.execute('SELECT agoda_score_weight, google_score_weight FROM factor_weights WHERE type = ?', (dest_type,))
+        weights_result = cursor.fetchone()
+        return list(weights_result) if weights_result else [0, 0]
     else:
         cursor.execute('SELECT hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight FROM factor_weights WHERE type = ?', (dest_type,))
-    
-    weights_result = cursor.fetchone()
-    return list(weights_result) if weights_result else [0, 0, 0, 0]
+        weights_result = cursor.fetchone()
+        return list(weights_result) if weights_result else [0, 0, 0, 0]
 
 
 def calculate_location_score(cursor, dest_type, dest_id, city_id, area_id, country_id):
@@ -105,7 +106,7 @@ def calculate_location_score(cursor, dest_type, dest_id, city_id, area_id, count
 
 
 def calculate_hotel_score(cursor, hotel_id, country_id):
-    """Calculate score for hotel destination"""
+    """Calculate score for hotel destination using only Agoda and Google scores"""
     _, max_agoda, max_google = get_max_values(cursor)
     
     # Get hotel scores
@@ -116,13 +117,12 @@ def calculate_hotel_score(cursor, hotel_id, country_id):
     # Normalize scores
     agoda_score_normalized = int((agoda_score / max_agoda) * 100) if agoda_score else 0
     google_score_normalized = int((google_score / max_google) * 100) if google_score else 0
-    expenditure_score_normalized, departure_score_normalized = get_outbound_scores(cursor, country_id)
     
-    # Get weights
+    # Get weights (only Agoda and Google for hotels)
     weights = get_weights(cursor, 'hotel')
     
-    # Calculate total score
-    factors = [agoda_score_normalized, google_score_normalized, expenditure_score_normalized, departure_score_normalized]
+    # Calculate total score with two factors only
+    factors = [agoda_score_normalized, google_score_normalized]
     total_score = calculate_weighted_score(factors, weights)
     
     return (
@@ -130,7 +130,7 @@ def calculate_hotel_score(cursor, hotel_id, country_id):
         0,  # country_hotel_count_normalized (not applicable for hotels)
         agoda_score_normalized,
         google_score_normalized,
-        expenditure_score_normalized,
-        departure_score_normalized,
+        0,  # expenditure_score_normalized (not used for hotels)
+        0,  # departure_score_normalized (not used for hotels)
         total_score
     )

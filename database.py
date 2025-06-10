@@ -313,7 +313,7 @@ def init_database():
                         )
                     )
 
-        # **FIX: Create hotel destinations with +20000 offset**
+        # **Create hotel destinations with +20000 offset**
         for hotel_id, hotel_info in hotels_data.items():
             # Get country_id from the hotel's city
             city_info = cities_data.get(hotel_info['city_id'])
@@ -362,7 +362,7 @@ def init_database():
         cursor.execute('INSERT INTO area_fts (rowid, name) SELECT id, name FROM area')
         cursor.execute('INSERT INTO hotel_fts (rowid, name) SELECT id, name FROM hotel')
 
-        # Set default weights with four-factor weighting
+        # Set default weights
         city_hotel_count_weight = 0.5  # Global hotel count weight for cities
         city_country_hotel_count_weight = 0.5  # Country hotel count weight for cities
         city_expenditure_weight = 0.5  # Expenditure score weight for cities
@@ -373,16 +373,15 @@ def init_database():
         area_expenditure_weight = 0.5  # Expenditure score weight for areas
         area_departure_weight = 0.5  # Departure score weight for areas
 
+        # Hotels only use Agoda and Google scores (no expenditure/departure)
         hotel_agoda_weight = 0.5  # Agoda score weight for hotels
         hotel_google_weight = 0.5  # Google score weight for hotels
-        hotel_expenditure_weight = 0.5  # Expenditure score weight for hotels
-        hotel_departure_weight = 0.5  # Departure score weight for hotels
 
-        # Insert default factor weights (now with 4 factors)
+        # Insert default factor weights
         default_weights = [
             ('city', city_hotel_count_weight, city_country_hotel_count_weight, 0, 0, city_expenditure_weight, city_departure_weight),
             ('area', area_hotel_count_weight, area_country_hotel_count_weight, 0, 0, area_expenditure_weight, area_departure_weight),
-            ('hotel', 0, 0, hotel_agoda_weight, hotel_google_weight, hotel_expenditure_weight, hotel_departure_weight),
+            ('hotel', 0, 0, hotel_agoda_weight, hotel_google_weight, 0, 0),  # No expenditure/departure for hotels
         ]
         cursor.executemany(
             'INSERT INTO factor_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -415,7 +414,7 @@ def init_database():
 
         for dest_id, dest_type, country_id, city_id, area_id in destinations:
             if dest_type == 'hotel':
-                # **FIX: Calculate hotel scores**
+                # **Hotel scores calculation (Agoda + Google only)**
                 hotel_id = dest_id - 20000  # Remove offset to get original hotel ID
                 
                 # Get hotel scores
@@ -430,27 +429,12 @@ def init_database():
                 agoda_normalized = int((agoda_score / max_agoda_score) * 100) if agoda_score else 0
                 google_normalized = int((google_score / max_google_score) * 100) if google_score else 0
                 
-                # Get outbound scores for this country
-                cursor.execute(
-                    'SELECT expenditure_score, departure_score FROM country_outbound WHERE country_id = ?',
-                    (country_id,)
-                )
-                outbound_result = cursor.fetchone()
-                if outbound_result:
-                    expenditure_score_normalized = int(outbound_result[0])
-                    departure_score_normalized = int(outbound_result[1])
-                else:
-                    expenditure_score_normalized = 0
-                    departure_score_normalized = 0
-                
-                # Calculate weighted total score with four factors
+                # Calculate weighted total score with two factors only
                 weighted_sum = (
                     (agoda_normalized * hotel_agoda_weight) + 
-                    (google_normalized * hotel_google_weight) +
-                    (expenditure_score_normalized * hotel_expenditure_weight) +
-                    (departure_score_normalized * hotel_departure_weight)
+                    (google_normalized * hotel_google_weight)
                 )
-                factor_sum = hotel_agoda_weight + hotel_google_weight + hotel_expenditure_weight + hotel_departure_weight
+                factor_sum = hotel_agoda_weight + hotel_google_weight
                 
                 total_score = weighted_sum / factor_sum if factor_sum > 0 else 0
 
@@ -461,8 +445,8 @@ def init_database():
                         0,  # country_hotel_count_normalized (not applicable for hotels)
                         agoda_normalized,
                         google_normalized,
-                        expenditure_score_normalized,
-                        departure_score_normalized,
+                        0,  # expenditure_score_normalized (not used for hotels)
+                        0,  # departure_score_normalized (not used for hotels)
                         total_score,
                     )
                 )
@@ -559,7 +543,7 @@ def init_database():
                     )
                 )
 
-        # Insert scores with all four factors
+        # Insert scores with all factors
         cursor.executemany(
             '''
             INSERT INTO destination_score (
