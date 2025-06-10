@@ -1,0 +1,28 @@
+city.csv
+
+id,country_id,name,slug,name_alias,state,description,latitude,longitude,has_hotels,has_flights,has_tours,has_cars,has_tickets,has_tripleidea,total_hotels,created_at,updated_at,photo_path
+1,132,Kowloon,kowloon,,,"<p>test</p>
+",22.32666397094727,114.20783996582031,1,1,1,1,1,1,472,2013-11-07 00:00:00,2024-12-23 13:09:18,https://d3dvg6dz4ayfk5.cloudfront.net/image/city//city_1_20241223130918.png
+
+area.csv
+
+has_tripleidea,total_hotels,created_at,updated_at,nid,city_id,name,slug,description,lat,lng,area_nearby,has_hotels,has_flights,has_tours,has_cars,has_tickets,ame_alias
+1,17759,Addu Atoll,addu-atoll,"<p>Addu Atoll</p>
+",-0.64668571949005,73.16743469238281,"a:2:{i:0;s:1:""4"";i:1;s:1:""2"";}",1,1,1,1,1,1,78,0000-00-00 00:00:00,2024-04-03 21:21:10,
+
+hotel.csv
+
+id,code,giata_code,city_id,area_id,name,slug,star_rating,lat,lng,address_full,address_1,address_2,postcode,phone_number,fax_number,description,location_description,room_description,additional_description,observation,commission,meta_title,meta_description,meta_keyword,top_header,website,email_address,is_home_recommend,is_special,price_today,wholesale_id,hotel_chain,accommodation_type,total_rooms,is_publish,check_in_time,check_out_time,gmt,distance_to_airport,tax_charge,service_charge,tax_rule,ignore_wholesalers,is_takeabreak,is_tat_campaign_1,is_tat_campaign_2,is_tat_campaign_3,is_tat_campaign_4,ta_id,ta_id_updated,is_tat_campaign_5,is_tat_campaign_6,is_tat_campaign_7,is_tat_campaign_8,is_tat_campaign_9,is_tat_campaign_10,is_tat_campaign_11,is_tat_campaign_12,is_tat_campaign_13,is_tat_campaign_14,is_tat_campaign_15,updated_at,created_at,is_register,is_thai_hotel_member,is_tagthai,hotel_promotion,important_note,sha_plus,sha_extra_plus,review_score,top100,is_prepare,price_updated,name_on_giata,hotel_segment,property_location,hotel_brand,activities,accessibility,user_rating,travel_style,travel_companion,travel_purpose,stay_period,preferred_hotel,is_green_certificate,green_certification_ids,tax_id,paid_creditcard_enable,payment_contact_email,payment_info,hotel_commission_deduct,formerly_name,popularity_score,number_of_review,rating_average
+2,"",14637,17759,15,Adaaran Prestige Ocean Villas,adaaran-prestige-ocean-villas,5,4.17000007629395,73.50000000000000,"K. Lhohifushi 08360, North Male Atoll, Maldives Islands, Maldives",,,,009606641954,009606641931,"A perfect combination of a quiet resort and the inimitable charm of the turquoise lagoon, the 40 villas look out across the island's pristine white sand beaches and the Indian Ocean. This club resort has recently been refurbished for couples, honeymooners, families or anyone looking to kick back in style. It offers a restaurant, room service and laundry service.",,,,,0.00,Adaaran Prestige Ocean Villas,Adaaran Prestige Ocean Villas,Adaaran Prestige Ocean Villas,Adaaran Prestige Ocean Villas,"","",0,0,588.7200,19,,,,1,,,,,0.0000,0.0000,,,0,0,0,0,0,,2025-05-28 17:38:13,0,0,0,0,0,0,0,0,0,0,0,2025-02-18 15:05:05,0000-00-00 00:00:00,0,0,0,,,0,0,,0,0,,,,,,,,0.00,,,,,,0,,,0,,,0.00,,0,0,0.00
+
+
+top_100_hotel.csv
+
+id,hotel_id,agoda_score,google_score
+0,324450,100.00,41.00
+
+country_outbound.csv
+
+id,country_id,country_name,expenditure_score,departure_score
+1,106,Thailand,100.0000,100.0000
+2,198,Malaysia,32.5131,34.2022
