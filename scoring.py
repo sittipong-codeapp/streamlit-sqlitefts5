@@ -11,18 +11,20 @@ def calculate_scores_in_memory(fts_results, factor_weights):
     if not fts_results:
         return []
     
-    # Load small city threshold
-    small_city_threshold = load_small_city_threshold()
+    # Load dual thresholds
+    thresholds = load_thresholds()
+    city_threshold = thresholds['city']
+    area_threshold = thresholds['area']
     
     scored_results = []
     
     for result in fts_results:
         dest_type = result['type']
         
-        # Dynamic classification using the same threshold for both cities and areas
-        if dest_type == 'city' and result['hotel_count'] <= small_city_threshold:
+        # Dynamic classification using separate thresholds for cities and areas
+        if dest_type == 'city' and result['hotel_count'] <= city_threshold:
             dest_type = 'small_city'
-        elif dest_type == 'area' and result['hotel_count'] <= small_city_threshold:
+        elif dest_type == 'area' and result['hotel_count'] <= area_threshold:
             dest_type = 'small_area'
         
         if dest_type == 'hotel':
@@ -297,29 +299,114 @@ def save_weights_to_database(factor_weights):
         save_hotel_weights_to_database(hotel_weights)
 
 
-def load_small_city_threshold():
-    """Load small city threshold from database"""
+def load_thresholds():
+    """
+    Load dual thresholds from database.
+    
+    Returns:
+        dict: Dictionary with 'city' and 'area' threshold values
+    """
     conn = get_connection()
     cursor = conn.cursor()
     
-    cursor.execute('SELECT threshold FROM small_city_config WHERE id = 1')
+    cursor.execute('SELECT city_threshold, area_threshold FROM threshold_config WHERE id = 1')
     result = cursor.fetchone()
     conn.close()
     
-    return result[0] if result else 50  # Default to 50 if not found
+    if result:
+        return {
+            'city': result[0],
+            'area': result[1]
+        }
+    else:
+        # Fallback to config defaults if database record missing
+        from config import get_default_thresholds
+        return get_default_thresholds()
 
 
-def save_small_city_threshold(threshold):
-    """Save small city threshold to database"""
+def save_thresholds(city_threshold, area_threshold):
+    """
+    Save dual thresholds to database.
+    
+    Args:
+        city_threshold (int): Threshold for city classification
+        area_threshold (int): Threshold for area classification
+    """
     conn = get_connection()
     cursor = conn.cursor()
     
     cursor.execute('''
-        INSERT OR REPLACE INTO small_city_config (id, threshold) VALUES (1, ?)
-    ''', (threshold,))
+        INSERT OR REPLACE INTO threshold_config (id, city_threshold, area_threshold) 
+        VALUES (1, ?, ?)
+    ''', (city_threshold, area_threshold))
     
     conn.commit()
     conn.close()
+
+
+def load_city_threshold():
+    """
+    Load city threshold only (for individual access).
+    
+    Returns:
+        int: City threshold value
+    """
+    thresholds = load_thresholds()
+    return thresholds['city']
+
+
+def load_area_threshold():
+    """
+    Load area threshold only (for individual access).
+    
+    Returns:
+        int: Area threshold value
+    """
+    thresholds = load_thresholds()
+    return thresholds['area']
+
+
+def save_city_threshold(threshold):
+    """
+    Save city threshold only (preserving area threshold).
+    
+    Args:
+        threshold (int): New city threshold value
+    """
+    current_thresholds = load_thresholds()
+    save_thresholds(threshold, current_thresholds['area'])
+
+
+def save_area_threshold(threshold):
+    """
+    Save area threshold only (preserving city threshold).
+    
+    Args:
+        threshold (int): New area threshold value
+    """
+    current_thresholds = load_thresholds()
+    save_thresholds(current_thresholds['city'], threshold)
+
+
+# Backward compatibility functions
+def load_small_city_threshold():
+    """
+    Load small city threshold (backward compatibility - returns city threshold).
+    
+    Returns:
+        int: City threshold for backward compatibility
+    """
+    return load_city_threshold()
+
+
+def save_small_city_threshold(threshold):
+    """
+    Save small city threshold (backward compatibility - updates city threshold only).
+    
+    Args:
+        threshold (int): New city threshold value
+    """
+    save_city_threshold(threshold)
 
 
 def get_country_maxes_from_results(fts_results):

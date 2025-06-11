@@ -1,49 +1,66 @@
 import streamlit as st
 import pandas as pd
-from scoring import calculate_scores_in_memory, load_small_city_threshold, save_small_city_threshold
+from scoring import calculate_scores_in_memory, load_thresholds, save_thresholds
 
 
 def render_sidebar(current_factor_weights):
     """Render the sidebar with threshold and factor weight configuration forms"""
     st.sidebar.header("Weight Configuration")
 
-    # Track if weights were updated
+    # Track if weights or thresholds were updated
     factor_weights_updated = False
-    threshold_updated = False
+    thresholds_updated = False
 
-    # === SMALL CITY THRESHOLD SECTION (TOP PRIORITY) ===
-    st.sidebar.subheader("🏘️ Small City/Area Threshold")
+    # === DUAL THRESHOLD SECTION (TOP PRIORITY) ===
+    st.sidebar.subheader("🏘️ Classification Thresholds")
     st.sidebar.markdown(
         """
-        *Set the hotel count threshold that determines classification for both cities and areas:*
-        - Cities with **≤ threshold hotels** = Small City
-        - Cities with **> threshold hotels** = Regular City
-        - Areas with **≤ threshold hotels** = Small Area
-        - Areas with **> threshold hotels** = Regular Area
+        *Set separate hotel count thresholds for independent city and area classification:*
+        
+        **City Classification:**
+        - Cities with **≤ city threshold hotels** = Small City
+        - Cities with **> city threshold hotels** = Regular City
+        
+        **Area Classification:**
+        - Areas with **≤ area threshold hotels** = Small Area
+        - Areas with **> area threshold hotels** = Regular Area
         """
     )
 
-    with st.sidebar.form("threshold_form"):
-        current_threshold = load_small_city_threshold()
-        threshold_input = st.text_input(
-            "Hotel Count Threshold:", 
-            value=str(current_threshold),
-            help="Cities and areas with this many hotels or fewer will be classified as 'small'"
-        )
+    with st.sidebar.form("dual_threshold_form"):
+        current_thresholds = load_thresholds()
         
-        submit_threshold = st.form_submit_button("Update Threshold")
+        col1, col2 = st.columns(2)
         
-        if submit_threshold:
+        with col1:
+            city_threshold_input = st.text_input(
+                "City Threshold:", 
+                value=str(current_thresholds['city']),
+                help="Cities with this many hotels or fewer will be classified as 'small cities'"
+            )
+        
+        with col2:
+            area_threshold_input = st.text_input(
+                "Area Threshold:", 
+                value=str(current_thresholds['area']),
+                help="Areas with this many hotels or fewer will be classified as 'small areas'"
+            )
+        
+        submit_thresholds = st.form_submit_button("Update Thresholds")
+        
+        if submit_thresholds:
             try:
-                threshold_value = int(threshold_input)
-                if threshold_value >= 0:
-                    save_small_city_threshold(threshold_value)
-                    st.sidebar.success(f"Threshold updated to {threshold_value} hotels!")
-                    threshold_updated = True
+                city_threshold_value = int(city_threshold_input)
+                area_threshold_value = int(area_threshold_input)
+                
+                if city_threshold_value >= 0 and area_threshold_value >= 0:
+                    save_thresholds(city_threshold_value, area_threshold_value)
+                    st.sidebar.success(f"Thresholds updated! City: {city_threshold_value}, Area: {area_threshold_value}")
+                    thresholds_updated = True
                 else:
-                    st.sidebar.error("Threshold must be 0 or greater.")
+                    st.sidebar.error("Both thresholds must be 0 or greater.")
             except ValueError:
-                st.sidebar.error("Please enter a valid integer for the threshold.")
+                st.sidebar.error("Please enter valid integers for both thresholds.")
 
     st.sidebar.divider()
 
@@ -81,7 +98,7 @@ def render_sidebar(current_factor_weights):
                 # Mark that factor weights have changed for potential auto-recalculation
                 st.session_state.weights_changed = True
 
-    return factor_weights_updated
+    return factor_weights_updated or thresholds_updated
 
 
 def render_location_factor_form(dest_type, current_factor_weights):
@@ -308,11 +325,18 @@ def render_search_results(fts_results, current_factor_weights):
     # Show current weight configuration
     with st.expander("View Current Weight Configuration"):
         
-        # === SMALL CITY THRESHOLD SECTION ===
-        current_threshold = load_small_city_threshold()
-        st.subheader("🏘️ Small City/Area Threshold")
-        st.markdown(f"**Current Threshold:** {current_threshold} hotels")
-        st.markdown("Cities and areas with this many hotels or fewer are classified as 'small'")
+        # === DUAL THRESHOLD SECTION ===
+        current_thresholds = load_thresholds()
+        st.subheader("🏘️ Classification Thresholds")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("City Threshold", f"{current_thresholds['city']} hotels")
+            st.caption("Cities ≤ this threshold become 'Small City'")
+        
+        with col2:
+            st.metric("Area Threshold", f"{current_thresholds['area']} hotels")
+            st.caption("Areas ≤ this threshold become 'Small Area'")
         
         st.divider()
         
@@ -370,9 +394,12 @@ def render_search_results(fts_results, current_factor_weights):
         - **Low coefficients**: Destination type scores lower
         - **Example**: Set hotel coefficients to 0.01 to suppress hotels, city coefficients to 1.0 to boost cities
         
-        **Dynamic Classification:** Cities and areas are automatically classified as "Small" if their hotel count ≤ threshold.
+        **Dynamic Classification:** 
+        - **Cities** are classified as "Small City" if hotel count ≤ city threshold
+        - **Areas** are classified as "Small Area" if hotel count ≤ area threshold
+        - **Independent thresholds** allow different classification strategies for cities vs areas
         
-        *Coefficient values directly control competitive balance between all 5 destination types!*
+        *Coefficient values and dual thresholds provide complete control over all 5 destination types!*
         """)
 
     # Show scoring breakdown for top 10 results
@@ -381,6 +408,7 @@ def render_search_results(fts_results, current_factor_weights):
         
         for i, (_, row) in enumerate(top_10.iterrows(), 1):
             display_type = row['Type'].replace('_', ' ').title()
+            
             st.markdown(f"**#{i}: {row['Display Name']} ({display_type})**")
             
             col1, col2 = st.columns(2)

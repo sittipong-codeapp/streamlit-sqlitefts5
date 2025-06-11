@@ -117,11 +117,12 @@ def init_database():
     # NOTE: category_weights table creation removed - no longer used with new scoring system
     # Old category weight system has been replaced with coefficient-based scoring
     
-    # Create the small city threshold configuration table
+    # Create the dual threshold configuration table (replaces small_city_config)
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS small_city_config (
+        CREATE TABLE IF NOT EXISTS threshold_config (
             id INTEGER PRIMARY KEY DEFAULT 1,
-            threshold INTEGER DEFAULT 50
+            city_threshold INTEGER DEFAULT 50,
+            area_threshold INTEGER DEFAULT 20
         )
     ''')
 
@@ -414,12 +415,12 @@ def init_database():
         # NOTE: Default category weights insertion removed - no longer used
         # The new coefficient-based scoring system doesn't use category weights
 
-        # Set default small city threshold from config
-        from config import get_default_threshold
+        # Set default dual thresholds from config
+        from config import get_default_city_threshold, get_default_area_threshold
         
         cursor.execute(
-            'INSERT OR IGNORE INTO small_city_config (id, threshold) VALUES (1, ?)',
-            (get_default_threshold(),)
+            'INSERT OR IGNORE INTO threshold_config (id, city_threshold, area_threshold) VALUES (1, ?, ?)',
+            (get_default_city_threshold(), get_default_area_threshold())
         )
 
         # Calculate and store ONLY normalized values (no total scores)
@@ -482,14 +483,39 @@ def init_database():
     # NOTE: Category weights upgrade check removed - no longer used
     # The application now uses coefficient-based scoring instead of category weights
 
-    # Ensure small city config exists for upgrades
-    cursor.execute('SELECT COUNT(*) FROM small_city_config')
-    if cursor.fetchone()[0] == 0:
-        from config import get_default_threshold
+    # Migrate from old single threshold system to dual threshold system
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='small_city_config'")
+    old_table_exists = cursor.fetchone() is not None
+    
+    cursor.execute('SELECT COUNT(*) FROM threshold_config')
+    new_config_exists = cursor.fetchone()[0] > 0
+    
+    if old_table_exists and not new_config_exists:
+        # Migration: Convert old single threshold to dual threshold
+        cursor.execute('SELECT threshold FROM small_city_config WHERE id = 1')
+        old_threshold_result = cursor.fetchone()
         
+        if old_threshold_result:
+            old_threshold = old_threshold_result[0]
+            # Use old threshold for cities, default for areas
+            from config import get_default_area_threshold
+            cursor.execute(
+                'INSERT OR IGNORE INTO threshold_config (id, city_threshold, area_threshold) VALUES (1, ?, ?)',
+                (old_threshold, get_default_area_threshold())
+            )
+        else:
+            # No old threshold found, use defaults
+            from config import get_default_city_threshold, get_default_area_threshold
+            cursor.execute(
+                'INSERT OR IGNORE INTO threshold_config (id, city_threshold, area_threshold) VALUES (1, ?, ?)',
+                (get_default_city_threshold(), get_default_area_threshold())
+            )
+    elif not new_config_exists:
+        # Fresh installation or no old config - use defaults
+        from config import get_default_city_threshold, get_default_area_threshold
         cursor.execute(
-            'INSERT OR IGNORE INTO small_city_config (id, threshold) VALUES (1, ?)',
-            (get_default_threshold(),)
+            'INSERT OR IGNORE INTO threshold_config (id, city_threshold, area_threshold) VALUES (1, ?, ?)',
+            (get_default_city_threshold(), get_default_area_threshold())
         )
 
     conn.commit()

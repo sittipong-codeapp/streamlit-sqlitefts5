@@ -6,7 +6,7 @@ from ui_components import render_sidebar, render_search_results
 from scoring import (
     load_weights_from_database, 
     save_weights_to_database, 
-    load_small_city_threshold
+    load_thresholds
 )
 from score_calculator import create_default_weights_by_type
 
@@ -15,18 +15,18 @@ from score_calculator import create_default_weights_by_type
 if 'app_config' not in st.session_state:
     st.session_state.app_config = {
         'weights': None,
-        'small_city_threshold': None,
+        'thresholds': None,
         'weights_loaded': False,
-        'threshold_loaded': False,
+        'thresholds_loaded': False,
         'weights_changed': False,
-        'threshold_changed': False,
+        'thresholds_changed': False,
         'last_query': '',
         'last_fts_results': None
     }
 
 
 def initialize_app():
-    """Initialize the application - load weights and threshold into memory"""
+    """Initialize the application - load weights and thresholds into memory"""
     if not st.session_state.app_config['weights_loaded']:
         try:
             # Load factor weights from database into memory (now from separate tables)
@@ -40,25 +40,25 @@ def initialize_app():
             st.session_state.app_config['weights'] = get_default_weights()
             st.session_state.app_config['weights_loaded'] = True
 
-    if not st.session_state.app_config['threshold_loaded']:
+    if not st.session_state.app_config['thresholds_loaded']:
         try:
-            # Load small city threshold from database into memory
-            st.session_state.app_config['small_city_threshold'] = load_small_city_threshold()
-            st.session_state.app_config['threshold_loaded'] = True
+            # Load dual thresholds from database into memory
+            st.session_state.app_config['thresholds'] = load_thresholds()
+            st.session_state.app_config['thresholds_loaded'] = True
             
         except Exception as e:
-            st.error(f"Failed to load small city threshold from database: {e}")
-            # Set default threshold from config if database load fails
-            from config import get_default_threshold
-            st.session_state.app_config['small_city_threshold'] = get_default_threshold()
-            st.session_state.app_config['threshold_loaded'] = True
+            st.error(f"Failed to load thresholds from database: {e}")
+            # Set default thresholds from config if database load fails
+            from config import get_default_thresholds
+            st.session_state.app_config['thresholds'] = get_default_thresholds()
+            st.session_state.app_config['thresholds_loaded'] = True
 
     # Register cleanup function to save weights on exit (only once)
     if not hasattr(st.session_state, 'cleanup_registered'):
         def save_weights_on_exit():
             if st.session_state.app_config.get('weights_changed', False):
                 save_weights_to_database(st.session_state.app_config['weights'])
-            # Note: threshold is saved immediately when changed, so no need to save on exit
+            # Note: thresholds are saved immediately when changed, so no need to save on exit
         
         atexit.register(save_weights_on_exit)
         st.session_state.cleanup_registered = True
@@ -77,7 +77,7 @@ def save_weights_periodically():
             st.error(f"Failed to save factor weights to database: {e}")
             success = False
     
-    # Note: threshold is saved immediately when changed, so no periodic save needed
+    # Note: thresholds are saved immediately when changed, so no periodic save needed
     
     return success
 
@@ -112,14 +112,16 @@ def handle_search(query):
 
 
 def validate_app_config():
-    """Validate that app configuration has proper factor structure"""
+    """Validate that app configuration has proper factor structure and thresholds"""
     weights = st.session_state.app_config.get('weights', {})
+    thresholds = st.session_state.app_config.get('thresholds', {})
     
     # Validate that all destination types have proper factor structure
     from score_calculator import validate_weights_by_type, get_factor_count
     
     validation_issues = []
     
+    # Validate weights for all 5 destination types
     for dest_type in ['city', 'area', 'small_city', 'small_area', 'hotel']:
         if dest_type not in weights:
             validation_issues.append(f"Missing weights for {dest_type}")
@@ -137,16 +139,32 @@ def validate_app_config():
         if not validate_weights_by_type(dest_type, type_weights):
             validation_issues.append(f"Invalid weight structure for {dest_type}")
     
+    # Validate dual thresholds
+    if not thresholds:
+        validation_issues.append("Missing threshold configuration")
+    else:
+        if 'city' not in thresholds:
+            validation_issues.append("Missing city threshold")
+        elif not isinstance(thresholds['city'], int) or thresholds['city'] < 0:
+            validation_issues.append("Invalid city threshold (must be non-negative integer)")
+            
+        if 'area' not in thresholds:
+            validation_issues.append("Missing area threshold")
+        elif not isinstance(thresholds['area'], int) or thresholds['area'] < 0:
+            validation_issues.append("Invalid area threshold (must be non-negative integer)")
+    
     if validation_issues:
         st.error("App configuration validation failed:")
         for issue in validation_issues:
             st.error(f"- {issue}")
         
         # Reset to defaults from config
-        st.warning("Resetting to default weights...")
-        from config import get_default_weights
+        st.warning("Resetting to default configuration...")
+        from config import get_default_weights, get_default_thresholds
         st.session_state.app_config['weights'] = get_default_weights()
+        st.session_state.app_config['thresholds'] = get_default_thresholds()
         st.session_state.app_config['weights_changed'] = True
+        st.session_state.app_config['thresholds_changed'] = True
         
         return False
     
@@ -164,7 +182,7 @@ def main():
     # Initialize the database
     init_database()
     
-    # Initialize the application (load weights and threshold)
+    # Initialize the application (load weights and thresholds)
     initialize_app()
     
     # Validate app configuration

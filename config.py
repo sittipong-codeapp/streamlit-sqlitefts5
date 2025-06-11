@@ -50,8 +50,9 @@ DEFAULT_HOTEL_WEIGHTS = {
     "departure_score_weight": 0.0
 }
 
-# Small city classification threshold
-DEFAULT_SMALL_CITY_THRESHOLD = 300
+# Dual threshold configuration - separate thresholds for cities and areas
+DEFAULT_CITY_THRESHOLD = 50
+DEFAULT_AREA_THRESHOLD = 20
 
 
 def get_default_weights():
@@ -122,11 +123,45 @@ def get_default_hotel_weights():
     return DEFAULT_HOTEL_WEIGHTS.copy()
 
 
-def get_default_threshold():
+def get_default_thresholds():
     """
-    Get default small city threshold.
+    Get default thresholds for both cities and areas.
+    
+    Returns:
+        dict: Dictionary with 'city' and 'area' threshold values
+    """
+    return {
+        'city': DEFAULT_CITY_THRESHOLD,
+        'area': DEFAULT_AREA_THRESHOLD
+    }
+
+
+def get_default_city_threshold():
+    """
+    Get default threshold for city classification.
     
     Returns:
         int: Default threshold for small city classification
     """
-    return DEFAULT_SMALL_CITY_THRESHOLD
+    return DEFAULT_CITY_THRESHOLD
+
+
+def get_default_area_threshold():
+    """
+    Get default threshold for area classification.
+    
+    Returns:
+        int: Default threshold for small area classification
+    """
+    return DEFAULT_AREA_THRESHOLD
+
+
+# Backward compatibility function - returns city threshold
+def get_default_threshold():
+    """
+    Get default threshold (backward compatibility - returns city threshold).
+    
+    Returns:
+        int: Default city threshold for backward compatibility
+    """
+    return DEFAULT_CITY_THRESHOLD
