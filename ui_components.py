@@ -51,7 +51,7 @@ def render_sidebar(current_factor_weights):
         """
         *Configure the coefficients for the scoring formula:*
         
-        **New Scoring Formula:** `(factor1×coeff1 + factor2×coeff2 + ... + factorN×coeffN) / N`
+        **Scoring Formula:** `Σ(factorᵢ × coeffᵢ) / N`
         
         - **Cities, Small Cities & Areas**: 4 factors (divide by 4)
         - **Hotels**: 6 factors (divide by 6)
@@ -109,19 +109,6 @@ def render_location_factor_form(dest_type, current_factor_weights):
         value=str(current_factor_weights[dest_type]["departure_score_weight"]),
         help="Coefficient for outbound tourism departure score (0-1)"
     )
-
-    # Convert string inputs to float and show coefficient sum for reference
-    try:
-        coeff_sum = (
-            float(hotel_count_weight) + 
-            float(country_hotel_count_weight) + 
-            float(expenditure_score_weight) + 
-            float(departure_score_weight)
-        )
-        st.write(f"Coefficient Sum: {coeff_sum:.4f}")
-        st.caption("Higher sum = higher scores for this destination type")
-    except ValueError:
-        st.write("Invalid coefficient values entered")
 
     submit_weights = st.form_submit_button(
         f"Update {dest_type.replace('_', ' ').title()} Coefficients"
@@ -198,21 +185,6 @@ def render_hotel_factor_form(dest_type, current_factor_weights):
         help="Inherits the outbound tourism departure score from the hotel's country"
     )
 
-    # Convert string inputs to float and show coefficient sum for reference
-    try:
-        coeff_sum = (
-            float(hotel_count_weight) + 
-            float(country_hotel_count_weight) + 
-            float(agoda_score_weight) + 
-            float(google_score_weight) + 
-            float(expenditure_score_weight) + 
-            float(departure_score_weight)
-        )
-        st.write(f"Coefficient Sum: {coeff_sum:.4f}")
-        st.caption("Higher sum = higher scores for this destination type")
-    except ValueError:
-        st.write("Invalid coefficient values entered")
-
     submit_weights = st.form_submit_button(
         f"Update {dest_type.replace('_', ' ').title()} Coefficients"
     )
@@ -255,14 +227,14 @@ def render_hotel_factor_form(dest_type, current_factor_weights):
 
 def render_search_results(fts_results, current_factor_weights):
     """
-    Render search results with in-memory score calculation using new coefficient-based scoring system.
+    Render search results with in-memory score calculation using coefficient-based scoring system.
     Takes raw FTS results and current weights, calculates scores in Python.
     """
     if not fts_results:
         st.write("No matching destinations found.")
         return
 
-    # Calculate scores in memory using current factor weights (new simple scoring system)
+    # Calculate scores in memory using current factor weights (coefficient-based scoring system)
     scored_results = calculate_scores_in_memory(fts_results, current_factor_weights)
     
     if not scored_results:
@@ -352,14 +324,6 @@ def render_search_results(fts_results, current_factor_weights):
             
             if dest_type == 'hotel':
                 # Hotels have 6 factors
-                coeff_sum = (
-                    weights['hotel_count_weight'] + 
-                    weights['country_hotel_count_weight'] + 
-                    weights['agoda_score_weight'] + 
-                    weights['google_score_weight'] + 
-                    weights['expenditure_score_weight'] + 
-                    weights['departure_score_weight']
-                )
                 factor_weights_display.append({
                     "Type": display_name,
                     "Hotel Count": f"{weights['hotel_count_weight']:.3f}",
@@ -368,17 +332,10 @@ def render_search_results(fts_results, current_factor_weights):
                     "Google Score": f"{weights['google_score_weight']:.3f}",
                     "Expenditure Score": f"{weights['expenditure_score_weight']:.3f}",
                     "Departure Score": f"{weights['departure_score_weight']:.3f}",
-                    "Coefficient Sum": f"{coeff_sum:.3f}",
                     "Factor Count": "6"
                 })
             else:
                 # Locations have 4 factors
-                coeff_sum = (
-                    weights['hotel_count_weight'] + 
-                    weights['country_hotel_count_weight'] + 
-                    weights['expenditure_score_weight'] + 
-                    weights['departure_score_weight']
-                )
                 factor_weights_display.append({
                     "Type": display_name,
                     "Hotel Count": f"{weights['hotel_count_weight']:.3f}",
@@ -387,7 +344,6 @@ def render_search_results(fts_results, current_factor_weights):
                     "Google Score": "N/A",  # Not applicable for locations
                     "Expenditure Score": f"{weights['expenditure_score_weight']:.3f}",
                     "Departure Score": f"{weights['departure_score_weight']:.3f}",
-                    "Coefficient Sum": f"{coeff_sum:.3f}",
                     "Factor Count": "4"
                 })
         
@@ -397,24 +353,24 @@ def render_search_results(fts_results, current_factor_weights):
         st.divider()
         
         # === SCORING EXPLANATION ===
-        st.subheader("📊 New Scoring System")
+        st.subheader("📊 Scoring System")
         st.markdown("""
-        **Simple Coefficient-Based Formula:**
+        **Coefficient-Based Formula:**
         
-        `Final Score = (factor1×coeff1 + factor2×coeff2 + ... + factorN×coeffN) / N`
+        `Final Score = Σ(factorᵢ × coeffᵢ) / N`
         
         **Factor Structure:**
         - **Cities, Small Cities & Areas**: 4 factors (divide by 4)
         - **Hotels**: 6 factors (divide by 6)
         
         **Strategic Control:**
-        - **High coefficient sums**: Destination type scores higher
-        - **Low coefficient sums**: Destination type scores lower
+        - **High coefficients**: Destination type scores higher
+        - **Low coefficients**: Destination type scores lower
         - **Example**: Set hotel coefficients to 0.01 to suppress hotels, city coefficients to 1.0 to boost cities
         
         **Dynamic Classification:** Cities are automatically classified as "Small City" if their hotel count ≤ threshold.
         
-        *The coefficient sum for each destination type directly controls competitive balance!*
+        *Coefficient values directly control competitive balance between destination types!*
         """)
 
     # Show scoring breakdown for top 10 results
