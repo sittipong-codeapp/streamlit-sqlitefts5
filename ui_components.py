@@ -78,7 +78,7 @@ def render_sidebar(current_factor_weights, current_category_weights):
             help="Priority weight for hotels (default: 0.1 = lowest priority)"
         )
         
-        # Show category weight distribution
+        # Show category weight sum
         try:
             city_weight_float = float(city_weight)
             small_city_weight_float = float(small_city_weight)
@@ -86,12 +86,7 @@ def render_sidebar(current_factor_weights, current_category_weights):
             hotel_weight_float = float(hotel_weight)
             total = city_weight_float + small_city_weight_float + area_weight_float + hotel_weight_float
             
-            if total > 0:
-                st.markdown("**Current Distribution:**")
-                st.write(f"🏙️ Cities: {(city_weight_float/total)*100:.1f}%")
-                st.write(f"🏘️ Small Cities: {(small_city_weight_float/total)*100:.1f}%")
-                st.write(f"🗺️ Areas: {(area_weight_float/total)*100:.1f}%")
-                st.write(f"🏨 Hotels: {(hotel_weight_float/total)*100:.1f}%")
+            st.write(f"Category Weight Sum: {total:.4f}")
         except ValueError:
             st.write("Invalid weight values entered")
         
@@ -410,26 +405,13 @@ def render_search_results(fts_results, current_factor_weights, current_category_
         st.subheader("🎯 Category Priority Weights")
         
         category_weights_display = []
-        total_category_weight = sum(current_category_weights.values())
         
         for dest_type, weight in current_category_weights.items():
-            percentage = (weight / total_category_weight) * 100 if total_category_weight > 0 else 0
             display_name = dest_type.replace('_', ' ').title()
-            
-            if weight >= 10.0:
-                impact = "Highest priority"
-            elif weight >= 5.0:
-                impact = "High priority"
-            elif weight >= 1.0:
-                impact = "Medium priority"
-            else:
-                impact = "Lower priority"
                 
             category_weights_display.append({
                 "Destination Type": display_name,
-                "Weight": f"{weight:.1f}",
-                "Distribution": f"{percentage:.1f}%",
-                "Impact": impact
+                "Weight": f"{weight:.1f}"
             })
         
         category_df = pd.DataFrame(category_weights_display)
