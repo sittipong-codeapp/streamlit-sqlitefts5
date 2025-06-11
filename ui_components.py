@@ -384,10 +384,6 @@ def render_search_results(fts_results, current_factor_weights, current_category_
 
     st.write(f"Found {len(scored_results)} matching destinations:")
 
-    # Show current threshold info
-    current_threshold = load_small_city_threshold()
-    st.info(f"ℹ️ Current small city threshold: {current_threshold} hotels (cities with ≤{current_threshold} hotels are classified as small cities)")
-
     # Show results with 7 columns as requested
     display_df = df[
         [
@@ -414,6 +410,7 @@ def render_search_results(fts_results, current_factor_weights, current_category_
     with st.expander("View Current Weight Configuration"):
         
         # === SMALL CITY THRESHOLD SECTION ===
+        current_threshold = load_small_city_threshold()
         st.subheader("🏘️ Small City Threshold")
         st.markdown(f"**Current Threshold:** {current_threshold} hotels")
         st.markdown("Cities with this many hotels or fewer are classified as 'small cities'")

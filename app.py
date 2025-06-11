@@ -200,33 +200,6 @@ def validate_app_config():
     return True
 
 
-def display_weight_structure_info():
-    """Display information about the current weight structure"""
-    weights = st.session_state.app_config.get('weights', {})
-    
-    with st.expander("ℹ️ Current Weight Structure", expanded=False):
-        st.markdown("**Factor Structure by Destination Type:**")
-        
-        for dest_type in ['city', 'small_city', 'area', 'hotel']:
-            if dest_type in weights:
-                type_weights = weights[dest_type]
-                factor_count = len(type_weights)
-                
-                st.markdown(f"**{dest_type.replace('_', ' ').title()}**: {factor_count} factors")
-                
-                factors_list = list(type_weights.keys())
-                factors_display = ", ".join([f.replace('_weight', '').replace('_', ' ') for f in factors_list])
-                st.markdown(f"- {factors_display}")
-        
-        st.markdown("""
-        **Clean Factor Structure:**
-        - **Cities/Areas/Small Cities**: 4 factors (no review scores)
-        - **Hotels**: 6 factors (includes agoda/google review scores)
-        
-        This eliminates redundant zero-valued factors and provides cleaner, more maintainable code.
-        """)
-
-
 # Streamlit app
 def main():
     # Set sidebar to collapsed by default
@@ -248,7 +221,6 @@ def main():
 
     # Web interface
     st.title("Search Suggestion Sandbox")
-    st.markdown("*Refactored with clean 4/6 factor structure*")
 
     # Add save weights button in sidebar header
     with st.sidebar:
@@ -279,9 +251,6 @@ def main():
             st.write("✅ *All weights saved*")
         
         st.divider()
-
-    # Display weight structure information
-    display_weight_structure_info()
 
     # Render sidebar with weight configuration
     current_factor_weights = st.session_state.app_config['weights']

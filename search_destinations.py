@@ -192,21 +192,3 @@ def search_destinations(query):
         processed_results.append(result)
     
     return processed_results
-
-
-def search_destinations_legacy(query):
-    """
-    Legacy function that adds agoda/google keys with 0 values for backward compatibility.
-    Use this if other parts of the code expect all results to have agoda/google keys.
-    """
-    results = search_destinations(query)
-    
-    # Add missing agoda/google keys for location results
-    for result in results:
-        if result['type'] in ['city', 'area']:
-            if 'agoda_score_normalized' not in result:
-                result['agoda_score_normalized'] = 0
-            if 'google_score_normalized' not in result:
-                result['google_score_normalized'] = 0
-    
-    return results
