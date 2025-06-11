@@ -8,19 +8,19 @@ def search_destinations(query):
     2. Only search hotels if slots remain unfilled
     3. Always attempt to return up to 20 results total
     """
-    # Phase 1: Search cities and areas only
+    # Phase 1: Search cities and areas
     location_results = search_locations_only(query)
     
-    # Phase 2: Check if hotel search needed
+    # Phase 2: Decision point
     if len(location_results) >= 20:
-        # Sufficient location results, no hotel search needed
-        return location_results[:20]
+        # Enough locations found, skip hotels
+        return location_results
     
-    # Phase 3: Conditional hotel search to fill remaining slots
+    # Phase 3: Search hotels to fill remaining slots
     slots_needed = 20 - len(location_results)
     hotel_results = search_hotels_only(query, limit=slots_needed)
     
-    # Phase 4: Combine results (will be scored together later)
+    # Phase 4: Combine results
     combined_results = location_results + hotel_results
     
     return combined_results
