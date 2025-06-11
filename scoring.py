@@ -6,7 +6,7 @@ def calculate_scores_in_memory(fts_results, factor_weights):
     Calculate final scores for search results in memory using new coefficient-based scoring system.
     Updated to handle hierarchical search results (locations + conditional hotels).
     New formula: Final Score = (factor1×coeff1 + factor2×coeff2 + ... + factorN×coeffN) / N
-    Where N = 4 for cities/areas, N = 6 for hotels
+    Where N = 4 for cities/areas/small_cities/small_areas, N = 6 for hotels
     """
     if not fts_results:
         return []
@@ -19,9 +19,11 @@ def calculate_scores_in_memory(fts_results, factor_weights):
     for result in fts_results:
         dest_type = result['type']
         
-        # Dynamic small city classification - convert city to small_city if below threshold
+        # Dynamic classification using the same threshold for both cities and areas
         if dest_type == 'city' and result['hotel_count'] <= small_city_threshold:
             dest_type = 'small_city'
+        elif dest_type == 'area' and result['hotel_count'] <= small_city_threshold:
+            dest_type = 'small_area'
         
         if dest_type == 'hotel':
             # Hotels use 6 factors - direct array, no extraction needed
@@ -45,7 +47,7 @@ def calculate_scores_in_memory(fts_results, factor_weights):
             ]
             
         else:
-            # Cities, small cities and areas use 4 factors - direct array
+            # Cities, small cities, areas, and small areas use 4 factors - direct array
             factors = [
                 result['hotel_count_normalized'],
                 result['country_hotel_count_normalized'],
@@ -53,7 +55,7 @@ def calculate_scores_in_memory(fts_results, factor_weights):
                 result['departure_score_normalized']
             ]
             
-            location_weights = factor_weights[dest_type]  # 'city', 'small_city', or 'area'
+            location_weights = factor_weights[dest_type]  # 'city', 'small_city', 'area', or 'small_area'
             factor_weight_list = [
                 location_weights['hotel_count_weight'],
                 location_weights['country_hotel_count_weight'],
@@ -71,7 +73,7 @@ def calculate_scores_in_memory(fts_results, factor_weights):
         padded_weights = factor_weight_list + [0, 0] if len(factor_weight_list) == 4 else factor_weight_list
         
         scored_result = (
-            dest_type,  # This will now be 'small_city' for small cities
+            dest_type,  # This will now be 'small_city' or 'small_area' for small destinations
             result['name'],
             result['country_name'],
             result['city_name'],
@@ -132,7 +134,7 @@ def calculate_scores_for_hierarchical_search(fts_results, factor_weights):
 
 
 def load_location_weights_from_database():
-    """Load 4-factor weights for cities, areas, small_cities from location_weights table"""
+    """Load 4-factor weights for cities, areas, small_cities, small_areas from location_weights table"""
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -214,6 +216,9 @@ def load_weights_from_database():
     if 'small_city' not in all_weights:
         all_weights['small_city'] = defaults['small_city']
     
+    if 'small_area' not in all_weights:
+        all_weights['small_area'] = defaults['small_area']
+    
     if 'hotel' not in all_weights:
         all_weights['hotel'] = defaults['hotel']
     
@@ -225,7 +230,7 @@ def save_location_weights_to_database(location_weights):
     conn = get_connection()
     cursor = conn.cursor()
     
-    for dest_type in ['city', 'area', 'small_city']:
+    for dest_type in ['city', 'area', 'small_city', 'small_area']:
         if dest_type in location_weights:
             weight_dict = location_weights[dest_type]
             cursor.execute('''
@@ -279,7 +284,7 @@ def save_weights_to_database(factor_weights):
     hotel_weights = {}
     
     for dest_type, weight_dict in factor_weights.items():
-        if dest_type in ['city', 'area', 'small_city']:
+        if dest_type in ['city', 'area', 'small_city', 'small_area']:
             location_weights[dest_type] = weight_dict
         elif dest_type == 'hotel':
             hotel_weights[dest_type] = weight_dict

@@ -12,12 +12,14 @@ def render_sidebar(current_factor_weights):
     threshold_updated = False
 
     # === SMALL CITY THRESHOLD SECTION (TOP PRIORITY) ===
-    st.sidebar.subheader("🏘️ Small City Threshold")
+    st.sidebar.subheader("🏘️ Small City/Area Threshold")
     st.sidebar.markdown(
         """
-        *Set the hotel count threshold that determines which cities are classified as "small cities":*
+        *Set the hotel count threshold that determines classification for both cities and areas:*
         - Cities with **≤ threshold hotels** = Small City
         - Cities with **> threshold hotels** = Regular City
+        - Areas with **≤ threshold hotels** = Small Area
+        - Areas with **> threshold hotels** = Regular Area
         """
     )
 
@@ -26,7 +28,7 @@ def render_sidebar(current_factor_weights):
         threshold_input = st.text_input(
             "Hotel Count Threshold:", 
             value=str(current_threshold),
-            help="Cities with this many hotels or fewer will be classified as 'small cities'"
+            help="Cities and areas with this many hotels or fewer will be classified as 'small'"
         )
         
         submit_threshold = st.form_submit_button("Update Threshold")
@@ -53,7 +55,7 @@ def render_sidebar(current_factor_weights):
         
         **Scoring Formula:** `Σ(factorᵢ × coeffᵢ) / N`
         
-        - **Cities, Small Cities & Areas**: 4 factors (divide by 4)
+        - **Cities, Small Cities, Areas & Small Areas**: 4 factors (divide by 4)
         - **Hotels**: 6 factors (divide by 6)
         
         *Use coefficient values to control destination type priority:*
@@ -62,7 +64,7 @@ def render_sidebar(current_factor_weights):
         """
     )
 
-    dest_types = ["city", "small_city", "area", "hotel"]
+    dest_types = ["city", "small_city", "area", "small_area", "hotel"]
 
     for dest_type in dest_types:
         st.sidebar.subheader(f"{dest_type.replace('_', ' ').title()} Coefficients")
@@ -83,7 +85,7 @@ def render_sidebar(current_factor_weights):
 
 
 def render_location_factor_form(dest_type, current_factor_weights):
-    """Render factor weight form for cities, areas, small_cities (4 factors only)"""
+    """Render factor weight form for cities, areas, small_cities, small_areas (4 factors only)"""
     
     # Location weights (4 factors: no agoda/google inputs)
     hotel_count_weight = st.text_input(
@@ -275,7 +277,7 @@ def render_search_results(fts_results, current_factor_weights):
     df["Display Name"] = df.apply(
         lambda row: (
             f"{row['Name']}, {row['City']}"
-            if row["Type"] == "area"
+            if row["Type"] in ["area", "small_area"]
             else row["Name"]
         ),
         axis=1,
@@ -308,9 +310,9 @@ def render_search_results(fts_results, current_factor_weights):
         
         # === SMALL CITY THRESHOLD SECTION ===
         current_threshold = load_small_city_threshold()
-        st.subheader("🏘️ Small City Threshold")
+        st.subheader("🏘️ Small City/Area Threshold")
         st.markdown(f"**Current Threshold:** {current_threshold} hotels")
-        st.markdown("Cities with this many hotels or fewer are classified as 'small cities'")
+        st.markdown("Cities and areas with this many hotels or fewer are classified as 'small'")
         
         st.divider()
         
@@ -335,7 +337,7 @@ def render_search_results(fts_results, current_factor_weights):
                     "Factor Count": "6"
                 })
             else:
-                # Locations have 4 factors
+                # Locations have 4 factors (including small_area)
                 factor_weights_display.append({
                     "Type": display_name,
                     "Hotel Count": f"{weights['hotel_count_weight']:.3f}",
@@ -360,7 +362,7 @@ def render_search_results(fts_results, current_factor_weights):
         `Final Score = Σ(factorᵢ × coeffᵢ) / N`
         
         **Factor Structure:**
-        - **Cities, Small Cities & Areas**: 4 factors (divide by 4)
+        - **Cities, Small Cities, Areas & Small Areas**: 4 factors (divide by 4)
         - **Hotels**: 6 factors (divide by 6)
         
         **Strategic Control:**
@@ -368,9 +370,9 @@ def render_search_results(fts_results, current_factor_weights):
         - **Low coefficients**: Destination type scores lower
         - **Example**: Set hotel coefficients to 0.01 to suppress hotels, city coefficients to 1.0 to boost cities
         
-        **Dynamic Classification:** Cities are automatically classified as "Small City" if their hotel count ≤ threshold.
+        **Dynamic Classification:** Cities and areas are automatically classified as "Small" if their hotel count ≤ threshold.
         
-        *Coefficient values directly control competitive balance between destination types!*
+        *Coefficient values directly control competitive balance between all 5 destination types!*
         """)
 
     # Show scoring breakdown for top 10 results
@@ -420,7 +422,7 @@ def render_search_results(fts_results, current_factor_weights):
                     ("Departure Score", row['Normalized: Departure Score'], row['Coefficient: Departure Score'])
                 ]
             else:
-                # Cities, areas, small_cities - only show 4 relevant factors
+                # Cities, areas, small_cities, small_areas - only show 4 relevant factors
                 factors = [
                     ("Global Hotel Count", row['Normalized: Hotel Count'], row['Coefficient: Hotel Count']),
                     ("Country Hotel Count", row['Normalized: Country Hotel Count'], row['Coefficient: Country Hotel Count']),

@@ -120,7 +120,7 @@ def validate_app_config():
     
     validation_issues = []
     
-    for dest_type in ['city', 'area', 'small_city', 'hotel']:
+    for dest_type in ['city', 'area', 'small_city', 'small_area', 'hotel']:
         if dest_type not in weights:
             validation_issues.append(f"Missing weights for {dest_type}")
             continue

@@ -143,7 +143,7 @@ def validate_weights_by_type(dest_type, weights_dict):
     """
     if dest_type == 'hotel':
         return validate_hotel_weights(weights_dict)
-    elif dest_type in ['city', 'area', 'small_city']:
+    elif dest_type in ['city', 'area', 'small_city', 'small_area']:
         return validate_location_weights(weights_dict)
     else:
         return False
@@ -152,11 +152,11 @@ def validate_weights_by_type(dest_type, weights_dict):
 def get_factor_count(dest_type):
     """
     Get the expected number of factors for a destination type.
-    Returns 4 for locations, 6 for hotels.
+    Returns 4 for locations (including small_area), 6 for hotels.
     """
     if dest_type == 'hotel':
         return 6
-    elif dest_type in ['city', 'area', 'small_city']:
+    elif dest_type in ['city', 'area', 'small_city', 'small_area']:
         return 4
     else:
         return 0
@@ -176,7 +176,7 @@ def get_factor_names(dest_type):
             'expenditure_score_weight',
             'departure_score_weight'
         ]
-    elif dest_type in ['city', 'area', 'small_city']:
+    elif dest_type in ['city', 'area', 'small_city', 'small_area']:
         return [
             'hotel_count_weight',
             'country_hotel_count_weight',
@@ -209,7 +209,9 @@ def get_weight_sum_by_type(dest_type, weights_dict):
 
 def create_default_weights_by_type(dest_type):
     """Create default weights for a specific destination type"""
-    from config import get_default_city_weights, get_default_small_city_weights, get_default_area_weights, get_default_hotel_weights
+    from config import (get_default_city_weights, get_default_small_city_weights, 
+                       get_default_area_weights, get_default_small_area_weights, 
+                       get_default_hotel_weights)
     
     if dest_type == 'hotel':
         return get_default_hotel_weights()
@@ -219,6 +221,8 @@ def create_default_weights_by_type(dest_type):
         return get_default_small_city_weights()
     elif dest_type == 'area':
         return get_default_area_weights()
+    elif dest_type == 'small_area':
+        return get_default_small_area_weights()
     else:
         return {}
 
@@ -238,7 +242,7 @@ def extract_factor_values_from_result(result, dest_type):
             result.get('expenditure_score_normalized', 0),
             result.get('departure_score_normalized', 0)
         ]
-    elif dest_type in ['city', 'area', 'small_city']:
+    elif dest_type in ['city', 'area', 'small_city', 'small_area']:
         # Locations: 4 factors (no agoda/google)
         return [
             result.get('hotel_count_normalized', 0),

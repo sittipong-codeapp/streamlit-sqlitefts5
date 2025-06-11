@@ -90,10 +90,10 @@ def init_database():
         )
     ''')
 
-    # Create the location weights table (for cities, areas, small_cities - 4 factors)
+    # Create the location weights table (for cities, areas, small_cities, small_areas - 4 factors)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS location_weights (
-            type TEXT PRIMARY KEY,  -- 'city', 'area', 'small_city'
+            type TEXT PRIMARY KEY,  -- 'city', 'area', 'small_city', 'small_area'
             hotel_count_weight REAL DEFAULT 1.0,
             country_hotel_count_weight REAL DEFAULT 0.625,
             expenditure_score_weight REAL DEFAULT 0.025,
@@ -377,12 +377,13 @@ def init_database():
         cursor.execute('INSERT INTO area_fts (rowid, name) SELECT id, name FROM area')
         cursor.execute('INSERT INTO hotel_fts (rowid, name) SELECT id, name FROM hotel')
 
-        # Set default location weights from config (separate for each type)
-        from config import get_default_city_weights, get_default_small_city_weights, get_default_area_weights
+        # Set default location weights from config (separate for each type including small_area)
+        from config import get_default_city_weights, get_default_small_city_weights, get_default_area_weights, get_default_small_area_weights
         
         city_weights = get_default_city_weights()
         small_city_weights = get_default_small_city_weights()
         area_weights = get_default_area_weights()
+        small_area_weights = get_default_small_area_weights()
         
         default_location_weights = [
             ('city', city_weights['hotel_count_weight'], city_weights['country_hotel_count_weight'], 
@@ -391,6 +392,8 @@ def init_database():
              small_city_weights['expenditure_score_weight'], small_city_weights['departure_score_weight']),
             ('area', area_weights['hotel_count_weight'], area_weights['country_hotel_count_weight'],
              area_weights['expenditure_score_weight'], area_weights['departure_score_weight']),
+            ('small_area', small_area_weights['hotel_count_weight'], small_area_weights['country_hotel_count_weight'],
+             small_area_weights['expenditure_score_weight'], small_area_weights['departure_score_weight']),
         ]
         cursor.executemany(
             'INSERT OR IGNORE INTO location_weights (type, hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?)',
@@ -426,14 +429,15 @@ def init_database():
         if 'st' in globals() and loading_placeholder:
             loading_placeholder.empty()
 
-    # Ensure location weights exist for upgrades (check and insert from config)
+    # Ensure location weights exist for upgrades (check and insert from config including small_area)
     cursor.execute('SELECT COUNT(*) FROM location_weights WHERE type = ?', ('city',))
     if cursor.fetchone()[0] == 0:
-        from config import get_default_city_weights, get_default_small_city_weights, get_default_area_weights
+        from config import get_default_city_weights, get_default_small_city_weights, get_default_area_weights, get_default_small_area_weights
         
         city_weights = get_default_city_weights()
         small_city_weights = get_default_small_city_weights()
         area_weights = get_default_area_weights()
+        small_area_weights = get_default_small_area_weights()
         
         default_location_weights = [
             ('city', city_weights['hotel_count_weight'], city_weights['country_hotel_count_weight'], 
@@ -442,10 +446,24 @@ def init_database():
              small_city_weights['expenditure_score_weight'], small_city_weights['departure_score_weight']),
             ('area', area_weights['hotel_count_weight'], area_weights['country_hotel_count_weight'],
              area_weights['expenditure_score_weight'], area_weights['departure_score_weight']),
+            ('small_area', small_area_weights['hotel_count_weight'], small_area_weights['country_hotel_count_weight'],
+             small_area_weights['expenditure_score_weight'], small_area_weights['departure_score_weight']),
         ]
         cursor.executemany(
             'INSERT OR IGNORE INTO location_weights (type, hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?)',
             default_location_weights,
+        )
+
+    # Ensure small_area weights exist for existing databases (migration support)
+    cursor.execute('SELECT COUNT(*) FROM location_weights WHERE type = ?', ('small_area',))
+    if cursor.fetchone()[0] == 0:
+        from config import get_default_small_area_weights
+        
+        small_area_weights = get_default_small_area_weights()
+        cursor.execute(
+            'INSERT OR IGNORE INTO location_weights (type, hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?)',
+            ('small_area', small_area_weights['hotel_count_weight'], small_area_weights['country_hotel_count_weight'],
+             small_area_weights['expenditure_score_weight'], small_area_weights['departure_score_weight'])
         )
 
     # Ensure hotel weights exist for upgrades
