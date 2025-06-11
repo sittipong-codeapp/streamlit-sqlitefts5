@@ -377,29 +377,46 @@ def init_database():
         cursor.execute('INSERT INTO area_fts (rowid, name) SELECT id, name FROM area')
         cursor.execute('INSERT INTO hotel_fts (rowid, name) SELECT id, name FROM hotel')
 
-        # Set default location weights (for cities, areas, small_cities - 4 factors)
+        # Set default location weights from config (separate for each type)
+        from config import get_default_city_weights, get_default_small_city_weights, get_default_area_weights
+        
+        city_weights = get_default_city_weights()
+        small_city_weights = get_default_small_city_weights()
+        area_weights = get_default_area_weights()
+        
         default_location_weights = [
-            ('city', 1.0, 0.625, 0.025, 0.025),
-            ('area', 1.0, 0.625, 0.025, 0.025),
-            ('small_city', 1.0, 0.625, 0.025, 0.025),
+            ('city', city_weights['hotel_count_weight'], city_weights['country_hotel_count_weight'], 
+             city_weights['expenditure_score_weight'], city_weights['departure_score_weight']),
+            ('small_city', small_city_weights['hotel_count_weight'], small_city_weights['country_hotel_count_weight'],
+             small_city_weights['expenditure_score_weight'], small_city_weights['departure_score_weight']),
+            ('area', area_weights['hotel_count_weight'], area_weights['country_hotel_count_weight'],
+             area_weights['expenditure_score_weight'], area_weights['departure_score_weight']),
         ]
         cursor.executemany(
             'INSERT OR IGNORE INTO location_weights (type, hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?)',
             default_location_weights,
         )
 
-        # Set default hotel weights (6 factors)
+        # Set default hotel weights from config
+        from config import get_default_hotel_weights
+        
+        hotel_weights = get_default_hotel_weights()
         cursor.execute(
             'INSERT OR IGNORE INTO hotel_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            ('hotel', 0.001, 0.001, 0.001, 0.001, 0.001, 0.001),
+            ('hotel', hotel_weights['hotel_count_weight'], hotel_weights['country_hotel_count_weight'],
+             hotel_weights['agoda_score_weight'], hotel_weights['google_score_weight'],
+             hotel_weights['expenditure_score_weight'], hotel_weights['departure_score_weight']),
         )
 
         # NOTE: Default category weights insertion removed - no longer used
         # The new coefficient-based scoring system doesn't use category weights
 
-        # Set default small city threshold
+        # Set default small city threshold from config
+        from config import get_default_threshold
+        
         cursor.execute(
-            'INSERT OR IGNORE INTO small_city_config (id, threshold) VALUES (1, 50)'
+            'INSERT OR IGNORE INTO small_city_config (id, threshold) VALUES (1, ?)',
+            (get_default_threshold(),)
         )
 
         # Calculate and store ONLY normalized values (no total scores)
@@ -409,13 +426,22 @@ def init_database():
         if 'st' in globals() and loading_placeholder:
             loading_placeholder.empty()
 
-    # Ensure location weights exist for upgrades (only need to check one type since we insert all together)
+    # Ensure location weights exist for upgrades (check and insert from config)
     cursor.execute('SELECT COUNT(*) FROM location_weights WHERE type = ?', ('city',))
     if cursor.fetchone()[0] == 0:
+        from config import get_default_city_weights, get_default_small_city_weights, get_default_area_weights
+        
+        city_weights = get_default_city_weights()
+        small_city_weights = get_default_small_city_weights()
+        area_weights = get_default_area_weights()
+        
         default_location_weights = [
-            ('city', 1.0, 0.625, 0.025, 0.025),
-            ('area', 1.0, 0.625, 0.025, 0.025),
-            ('small_city', 1.0, 0.625, 0.025, 0.025),
+            ('city', city_weights['hotel_count_weight'], city_weights['country_hotel_count_weight'], 
+             city_weights['expenditure_score_weight'], city_weights['departure_score_weight']),
+            ('small_city', small_city_weights['hotel_count_weight'], small_city_weights['country_hotel_count_weight'],
+             small_city_weights['expenditure_score_weight'], small_city_weights['departure_score_weight']),
+            ('area', area_weights['hotel_count_weight'], area_weights['country_hotel_count_weight'],
+             area_weights['expenditure_score_weight'], area_weights['departure_score_weight']),
         ]
         cursor.executemany(
             'INSERT OR IGNORE INTO location_weights (type, hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?)',
@@ -425,9 +451,14 @@ def init_database():
     # Ensure hotel weights exist for upgrades
     cursor.execute('SELECT COUNT(*) FROM hotel_weights WHERE type = ?', ('hotel',))
     if cursor.fetchone()[0] == 0:
+        from config import get_default_hotel_weights
+        
+        hotel_weights = get_default_hotel_weights()
         cursor.execute(
             'INSERT OR IGNORE INTO hotel_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            ('hotel', 0.001, 0.001, 0.001, 0.001, 0.001, 0.001)
+            ('hotel', hotel_weights['hotel_count_weight'], hotel_weights['country_hotel_count_weight'],
+             hotel_weights['agoda_score_weight'], hotel_weights['google_score_weight'],
+             hotel_weights['expenditure_score_weight'], hotel_weights['departure_score_weight'])
         )
 
     # NOTE: Category weights upgrade check removed - no longer used
@@ -436,8 +467,11 @@ def init_database():
     # Ensure small city config exists for upgrades
     cursor.execute('SELECT COUNT(*) FROM small_city_config')
     if cursor.fetchone()[0] == 0:
+        from config import get_default_threshold
+        
         cursor.execute(
-            'INSERT OR IGNORE INTO small_city_config (id, threshold) VALUES (1, 50)'
+            'INSERT OR IGNORE INTO small_city_config (id, threshold) VALUES (1, ?)',
+            (get_default_threshold(),)
         )
 
     conn.commit()

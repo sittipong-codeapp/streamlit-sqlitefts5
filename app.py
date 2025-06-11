@@ -35,13 +35,9 @@ def initialize_app():
             
         except Exception as e:
             st.error(f"Failed to load factor weights from database: {e}")
-            # Set default factor weights if database load fails
-            st.session_state.app_config['weights'] = {
-                'city': create_default_weights_by_type('city'),
-                'area': create_default_weights_by_type('area'), 
-                'hotel': create_default_weights_by_type('hotel'),
-                'small_city': create_default_weights_by_type('small_city')
-            }
+            # Set default factor weights from config if database load fails
+            from config import get_default_weights
+            st.session_state.app_config['weights'] = get_default_weights()
             st.session_state.app_config['weights_loaded'] = True
 
     if not st.session_state.app_config['threshold_loaded']:
@@ -52,8 +48,9 @@ def initialize_app():
             
         except Exception as e:
             st.error(f"Failed to load small city threshold from database: {e}")
-            # Set default threshold if database load fails
-            st.session_state.app_config['small_city_threshold'] = 50
+            # Set default threshold from config if database load fails
+            from config import get_default_threshold
+            st.session_state.app_config['small_city_threshold'] = get_default_threshold()
             st.session_state.app_config['threshold_loaded'] = True
 
     # Register cleanup function to save weights on exit (only once)
@@ -145,14 +142,10 @@ def validate_app_config():
         for issue in validation_issues:
             st.error(f"- {issue}")
         
-        # Reset to defaults
+        # Reset to defaults from config
         st.warning("Resetting to default weights...")
-        st.session_state.app_config['weights'] = {
-            'city': create_default_weights_by_type('city'),
-            'area': create_default_weights_by_type('area'),
-            'hotel': create_default_weights_by_type('hotel'),
-            'small_city': create_default_weights_by_type('small_city')
-        }
+        from config import get_default_weights
+        st.session_state.app_config['weights'] = get_default_weights()
         st.session_state.app_config['weights_changed'] = True
         
         return False

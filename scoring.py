@@ -201,40 +201,21 @@ def load_weights_from_database():
     # Merge into single dictionary
     all_weights = {**location_weights, **hotel_weights}
     
-    # Set defaults if missing
+    # Set defaults if missing using config
+    from config import get_default_weights
+    defaults = get_default_weights()
+    
     if 'city' not in all_weights:
-        all_weights['city'] = {
-            'hotel_count_weight': 1.0,
-            'country_hotel_count_weight': 0.625,
-            'expenditure_score_weight': 0.025,
-            'departure_score_weight': 0.025
-        }
+        all_weights['city'] = defaults['city']
     
     if 'area' not in all_weights:
-        all_weights['area'] = {
-            'hotel_count_weight': 1.0,
-            'country_hotel_count_weight': 0.625,
-            'expenditure_score_weight': 0.025,
-            'departure_score_weight': 0.025
-        }
+        all_weights['area'] = defaults['area']
     
     if 'small_city' not in all_weights:
-        all_weights['small_city'] = {
-            'hotel_count_weight': 1.0,
-            'country_hotel_count_weight': 0.625,
-            'expenditure_score_weight': 0.025,
-            'departure_score_weight': 0.025
-        }
+        all_weights['small_city'] = defaults['small_city']
     
     if 'hotel' not in all_weights:
-        all_weights['hotel'] = {
-            'hotel_count_weight': 0.001,
-            'country_hotel_count_weight': 0.001,
-            'agoda_score_weight': 0.001,
-            'google_score_weight': 0.001,
-            'expenditure_score_weight': 0.001,
-            'departure_score_weight': 0.001
-        }
+        all_weights['hotel'] = defaults['hotel']
     
     return all_weights
 
