@@ -114,14 +114,9 @@ def init_database():
         )
     ''')
 
-    # Create the category weights table (for destination type priority)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS category_weights (
-            type TEXT PRIMARY KEY,  -- 'city', 'area', 'hotel', or 'small_city'
-            weight REAL DEFAULT 1.0
-        )
-    ''')
-
+    # NOTE: category_weights table creation removed - no longer used with new scoring system
+    # Old category weight system has been replaced with coefficient-based scoring
+    
     # Create the small city threshold configuration table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS small_city_config (
@@ -399,17 +394,8 @@ def init_database():
             ('hotel', 0.001, 0.001, 0.001, 0.001, 0.001, 0.001),
         )
 
-        # Set default category weights (destination type priority)
-        default_category_weights = [
-            ('city', 10.0),       # Cities get highest priority
-            ('area', 1.0),        # Areas get medium priority  
-            ('hotel', 0.1),       # Hotels get lowest priority
-            ('small_city', 5.0),  # Small cities get medium-high priority
-        ]
-        cursor.executemany(
-            'INSERT OR IGNORE INTO category_weights (type, weight) VALUES (?, ?)',
-            default_category_weights,
-        )
+        # NOTE: Default category weights insertion removed - no longer used
+        # The new coefficient-based scoring system doesn't use category weights
 
         # Set default small city threshold
         cursor.execute(
@@ -444,19 +430,8 @@ def init_database():
             ('hotel', 0.001, 0.001, 0.001, 0.001, 0.001, 0.001)
         )
 
-    # Ensure category weights exist for upgrades
-    cursor.execute('SELECT COUNT(*) FROM category_weights')
-    if cursor.fetchone()[0] == 0:
-        default_category_weights = [
-            ('city', 10.0),       # Cities get highest priority
-            ('area', 1.0),        # Areas get medium priority  
-            ('hotel', 0.1),       # Hotels get lowest priority
-            ('small_city', 5.0),  # Small cities get medium-high priority
-        ]
-        cursor.executemany(
-            'INSERT OR IGNORE INTO category_weights (type, weight) VALUES (?, ?)',
-            default_category_weights,
-        )
+    # NOTE: Category weights upgrade check removed - no longer used
+    # The application now uses coefficient-based scoring instead of category weights
 
     # Ensure small city config exists for upgrades
     cursor.execute('SELECT COUNT(*) FROM small_city_config')

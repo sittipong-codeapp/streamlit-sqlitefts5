@@ -1,11 +1,11 @@
 from database import get_connection
 
 
-def calculate_scores_in_memory(fts_results, factor_weights, category_weights):
+def calculate_scores_in_memory(fts_results, factor_weights):
     """
-    Calculate final scores for search results in memory using current factor weights and category weights.
-    Now includes dynamic small city classification based on threshold.
-    Clean implementation with proper 4/6 factor arrays.
+    Calculate final scores for search results in memory using new coefficient-based scoring system.
+    New formula: Final Score = (factor1×coeff1 + factor2×coeff2 + ... + factorN×coeffN) / N
+    Where N = 4 for cities/areas, N = 6 for hotels
     """
     if not fts_results:
         return []
@@ -14,9 +14,6 @@ def calculate_scores_in_memory(fts_results, factor_weights, category_weights):
     small_city_threshold = load_small_city_threshold()
     
     scored_results = []
-    
-    # Calculate total category weight for normalization
-    total_category_weight = sum(category_weights.values())
     
     for result in fts_results:
         dest_type = result['type']
@@ -63,13 +60,10 @@ def calculate_scores_in_memory(fts_results, factor_weights, category_weights):
                 location_weights['departure_score_weight']
             ]
         
-        # Calculate base weighted score (factor level)
-        base_score = calculate_weighted_score(factors, factor_weight_list)
-        
-        # Apply category weight (destination type level)
-        category_weight = category_weights.get(dest_type, 1.0)
-        category_multiplier = category_weight / total_category_weight if total_category_weight > 0 else 0
-        final_score = base_score * category_multiplier
+        # Calculate final score using new coefficient-based formula
+        # Sum of (factor × coefficient) divided by factor count
+        weighted_sum = sum(factor * coeff for factor, coeff in zip(factors, factor_weight_list))
+        final_score = weighted_sum / len(factors)
         
         # Create result tuple in the format expected by UI
         # Pad factor_weight_list to 6 elements for consistent UI display (cities/areas get 0 for agoda/google)
@@ -88,7 +82,7 @@ def calculate_scores_in_memory(fts_results, factor_weights, category_weights):
             result.get('google_score_normalized', 0),  # 0 for cities/areas
             result['expenditure_score_normalized'],
             result['departure_score_normalized'],
-            final_score,  # This is the final score (base_score × category_multiplier)
+            final_score,  # This is now the simple coefficient-based score
             padded_weights[0],  # hotel_count_weight
             padded_weights[1],  # country_hotel_count_weight
             padded_weights[2],  # agoda_score_weight (0 for cities/areas)
@@ -96,9 +90,9 @@ def calculate_scores_in_memory(fts_results, factor_weights, category_weights):
             padded_weights[4] if len(padded_weights) > 4 else padded_weights[2],  # expenditure_score_weight
             padded_weights[5] if len(padded_weights) > 5 else padded_weights[3],  # departure_score_weight
             result['country_total_hotels'],
-            base_score,  # Add base score for debugging/display
-            category_weight,  # Add category weight for debugging/display
-            category_multiplier  # Add category multiplier for debugging/display
+            final_score,  # Base score same as final score (no category multiplier)
+            0,  # Category weight removed (set to 0 for UI compatibility)
+            1   # Category multiplier removed (set to 1 for UI compatibility)
         )
         
         scored_results.append(scored_result)
@@ -106,21 +100,6 @@ def calculate_scores_in_memory(fts_results, factor_weights, category_weights):
     # Sort by final score (descending) and limit to top 20
     scored_results.sort(key=lambda x: x[12], reverse=True)  # x[12] is final_score
     return scored_results[:20]
-
-
-def calculate_weighted_score(factors, weights):
-    """Calculate weighted average score from factors and weights"""
-    if not factors or not weights or len(factors) != len(weights):
-        return 0
-    
-    # Calculate weighted sum
-    weighted_sum = sum(factor * weight for factor, weight in zip(factors, weights))
-    
-    # Calculate sum of weights
-    weight_sum = sum(weights)
-    
-    # Return weighted average (avoid division by zero)
-    return weighted_sum / weight_sum if weight_sum > 0 else 0
 
 
 def load_location_weights_from_database():
@@ -303,55 +282,6 @@ def save_weights_to_database(factor_weights):
         save_hotel_weights_to_database(hotel_weights)
 
 
-def load_category_weights_from_database():
-    """Load current category weights from database into memory structure"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT type, weight FROM category_weights
-    ''')
-    
-    weights_data = cursor.fetchall()
-    conn.close()
-    
-    # Convert to dictionary structure
-    category_weights = {}
-    for row in weights_data:
-        dest_type = row[0]
-        weight = row[1]
-        category_weights[dest_type] = weight
-    
-    # Set defaults if missing
-    if 'city' not in category_weights:
-        category_weights['city'] = 10.0
-    
-    if 'area' not in category_weights:
-        category_weights['area'] = 1.0
-    
-    if 'hotel' not in category_weights:
-        category_weights['hotel'] = 0.1
-    
-    if 'small_city' not in category_weights:
-        category_weights['small_city'] = 5.0
-    
-    return category_weights
-
-
-def save_category_weights_to_database(category_weights):
-    """Save current in-memory category weights back to database"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    for dest_type, weight in category_weights.items():
-        cursor.execute('''
-            INSERT OR REPLACE INTO category_weights (type, weight) VALUES (?, ?)
-        ''', (dest_type, weight))
-    
-    conn.commit()
-    conn.close()
-
-
 def load_small_city_threshold():
     """Load small city threshold from database"""
     conn = get_connection()
@@ -412,13 +342,3 @@ def get_country_maxes_from_results(fts_results):
     
     conn.close()
     return country_maxes
-
-
-# Backward compatibility function - updates the signature to include category weights
-def calculate_scores_in_memory_legacy(fts_results, weights):
-    """
-    Legacy function for backward compatibility.
-    Loads category weights from database and calls the new function.
-    """
-    category_weights = load_category_weights_from_database()
-    return calculate_scores_in_memory(fts_results, weights, category_weights)
