@@ -93,7 +93,7 @@ def init_database():
     # Create the factor weights table (for storing user preferences)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS factor_weights (
-            type TEXT PRIMARY KEY,  -- 'city', 'area', or 'hotel'
+            type TEXT PRIMARY KEY,  -- 'city', 'area', 'hotel', or 'small_city'
             hotel_count_weight REAL DEFAULT 0.25,
             country_hotel_count_weight REAL DEFAULT 0.25,
             agoda_score_weight REAL DEFAULT 0.25,
@@ -106,8 +106,16 @@ def init_database():
     # Create the category weights table (for destination type priority)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS category_weights (
-            type TEXT PRIMARY KEY,  -- 'city', 'area', or 'hotel'
+            type TEXT PRIMARY KEY,  -- 'city', 'area', 'hotel', or 'small_city'
             weight REAL DEFAULT 1.0
+        )
+    ''')
+
+    # Create the small city threshold configuration table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS small_city_config (
+            id INTEGER PRIMARY KEY DEFAULT 1,
+            threshold INTEGER DEFAULT 50
         )
     ''')
 
@@ -395,26 +403,33 @@ def init_database():
         cursor.execute('INSERT INTO area_fts (rowid, name) SELECT id, name FROM area')
         cursor.execute('INSERT INTO hotel_fts (rowid, name) SELECT id, name FROM hotel')
 
-        # Set default factor weights (for user preferences)
+        # Set default factor weights (for user preferences) - including small_city
         default_factor_weights = [
             ('city', 1.0, 0.625, 0, 0, 0.025, 0.025),
             ('area', 1.0, 0.625, 0, 0, 0.025, 0.025),
             ('hotel', 0.001, 0.001, 0.001, 0.001, 0.001, 0.001),
+            ('small_city', 1.0, 0.625, 0, 0, 0.025, 0.025),  # Same as city by default
         ]
         cursor.executemany(
             'INSERT OR IGNORE INTO factor_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
             default_factor_weights,
         )
 
-        # Set default category weights (destination type priority)
+        # Set default category weights (destination type priority) - including small_city
         default_category_weights = [
-            ('city', 10.0),   # Cities get highest priority
-            ('area', 1.0),    # Areas get medium priority  
-            ('hotel', 0.1),   # Hotels get lowest priority
+            ('city', 10.0),       # Cities get highest priority
+            ('area', 1.0),        # Areas get medium priority  
+            ('hotel', 0.1),       # Hotels get lowest priority
+            ('small_city', 5.0),  # Small cities get medium-high priority
         ]
         cursor.executemany(
             'INSERT OR IGNORE INTO category_weights (type, weight) VALUES (?, ?)',
             default_category_weights,
+        )
+
+        # Set default small city threshold
+        cursor.execute(
+            'INSERT OR IGNORE INTO small_city_config (id, threshold) VALUES (1, 50)'
         )
 
         # Calculate and store ONLY normalized values (no total scores)
@@ -424,17 +439,40 @@ def init_database():
         if 'st' in globals() and loading_placeholder:
             loading_placeholder.empty()
 
-    # Ensure category weights exist even if data was already loaded (for upgrades)
+    # Ensure category weights exist even if data was already loaded (for upgrades) - including small_city
     cursor.execute('SELECT COUNT(*) FROM category_weights')
     if cursor.fetchone()[0] == 0:
         default_category_weights = [
-            ('city', 10.0),   # Cities get highest priority
-            ('area', 1.0),    # Areas get medium priority  
-            ('hotel', 0.1),   # Hotels get lowest priority
+            ('city', 10.0),       # Cities get highest priority
+            ('area', 1.0),        # Areas get medium priority  
+            ('hotel', 0.1),       # Hotels get lowest priority
+            ('small_city', 5.0),  # Small cities get medium-high priority
         ]
         cursor.executemany(
             'INSERT OR IGNORE INTO category_weights (type, weight) VALUES (?, ?)',
             default_category_weights,
+        )
+
+    # Ensure small_city weights exist for upgrades
+    cursor.execute('SELECT COUNT(*) FROM factor_weights WHERE type = ?', ('small_city',))
+    if cursor.fetchone()[0] == 0:
+        cursor.execute(
+            'INSERT OR IGNORE INTO factor_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            ('small_city', 1.0, 0.625, 0, 0, 0.025, 0.025)
+        )
+
+    cursor.execute('SELECT COUNT(*) FROM category_weights WHERE type = ?', ('small_city',))
+    if cursor.fetchone()[0] == 0:
+        cursor.execute(
+            'INSERT OR IGNORE INTO category_weights (type, weight) VALUES (?, ?)',
+            ('small_city', 5.0)
+        )
+
+    # Ensure small city config exists for upgrades
+    cursor.execute('SELECT COUNT(*) FROM small_city_config')
+    if cursor.fetchone()[0] == 0:
+        cursor.execute(
+            'INSERT OR IGNORE INTO small_city_config (id, threshold) VALUES (1, 50)'
         )
 
     conn.commit()

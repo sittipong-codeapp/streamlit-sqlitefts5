@@ -3,7 +3,7 @@ import atexit
 from database import init_database
 from search_destinations import search_destinations
 from ui_components import render_sidebar, render_search_results
-from scoring import load_weights_from_database, save_weights_to_database, load_category_weights_from_database, save_category_weights_to_database
+from scoring import load_weights_from_database, save_weights_to_database, load_category_weights_from_database, save_category_weights_to_database, load_small_city_threshold
 
 
 # Global in-memory configuration
@@ -11,17 +11,20 @@ if 'app_config' not in st.session_state:
     st.session_state.app_config = {
         'weights': None,
         'category_weights': None,
+        'small_city_threshold': None,
         'weights_loaded': False,
         'category_weights_loaded': False,
+        'threshold_loaded': False,
         'weights_changed': False,
         'category_weights_changed': False,
+        'threshold_changed': False,
         'last_query': '',
         'last_fts_results': None
     }
 
 
 def initialize_app():
-    """Initialize the application - load weights and category weights into memory"""
+    """Initialize the application - load weights, category weights and threshold into memory"""
     if not st.session_state.app_config['weights_loaded']:
         try:
             # Load factor weights from database into memory
@@ -55,6 +58,14 @@ def initialize_app():
                     'google_score_weight': 0.001,
                     'expenditure_score_weight': 0.001,
                     'departure_score_weight': 0.001
+                },
+                'small_city': {
+                    'hotel_count_weight': 1.0,
+                    'country_hotel_count_weight': 0.625,
+                    'agoda_score_weight': 0,
+                    'google_score_weight': 0,
+                    'expenditure_score_weight': 0.025,
+                    'departure_score_weight': 0.025
                 }
             }
             st.session_state.app_config['weights_loaded'] = True
@@ -71,9 +82,22 @@ def initialize_app():
             st.session_state.app_config['category_weights'] = {
                 'city': 10.0,
                 'area': 1.0,
-                'hotel': 0.1
+                'hotel': 0.1,
+                'small_city': 5.0
             }
             st.session_state.app_config['category_weights_loaded'] = True
+
+    if not st.session_state.app_config['threshold_loaded']:
+        try:
+            # Load small city threshold from database into memory
+            st.session_state.app_config['small_city_threshold'] = load_small_city_threshold()
+            st.session_state.app_config['threshold_loaded'] = True
+            
+        except Exception as e:
+            st.error(f"Failed to load small city threshold from database: {e}")
+            # Set default threshold if database load fails
+            st.session_state.app_config['small_city_threshold'] = 50
+            st.session_state.app_config['threshold_loaded'] = True
 
     # Register cleanup function to save weights on exit (only once)
     if not hasattr(st.session_state, 'cleanup_registered'):
@@ -82,13 +106,14 @@ def initialize_app():
                 save_weights_to_database(st.session_state.app_config['weights'])
             if st.session_state.app_config.get('category_weights_changed', False):
                 save_category_weights_to_database(st.session_state.app_config['category_weights'])
+            # Note: threshold is saved immediately when changed, so no need to save on exit
         
         atexit.register(save_weights_on_exit)
         st.session_state.cleanup_registered = True
 
 
 def save_weights_periodically():
-    """Save both factor weights and category weights to database if they have changed"""
+    """Save factor weights and category weights to database if they have changed"""
     success = True
     
     # Save factor weights if changed
@@ -108,6 +133,8 @@ def save_weights_periodically():
         except Exception as e:
             st.error(f"Failed to save category weights to database: {e}")
             success = False
+    
+    # Note: threshold is saved immediately when changed, so no periodic save needed
     
     return success
 
@@ -159,7 +186,7 @@ def main():
     # Initialize the database
     init_database()
     
-    # Initialize the application (load weights)
+    # Initialize the application (load weights and threshold)
     initialize_app()
 
     # Web interface

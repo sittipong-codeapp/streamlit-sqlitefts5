@@ -1,17 +1,52 @@
 import streamlit as st
 import pandas as pd
-from scoring import calculate_scores_in_memory
+from scoring import calculate_scores_in_memory, load_small_city_threshold, save_small_city_threshold
 
 
 def render_sidebar(current_factor_weights, current_category_weights):
-    """Render the sidebar with both category weights and factor weight configuration forms"""
+    """Render the sidebar with threshold, category weights and factor weight configuration forms"""
     st.sidebar.header("Weight Configuration")
 
     # Track if any weights were updated
     category_weights_updated = False
     factor_weights_updated = False
+    threshold_updated = False
 
-    # === CATEGORY WEIGHTS SECTION (TOP PRIORITY) ===
+    # === SMALL CITY THRESHOLD SECTION (TOP PRIORITY) ===
+    st.sidebar.subheader("🏘️ Small City Threshold")
+    st.sidebar.markdown(
+        """
+        *Set the hotel count threshold that determines which cities are classified as "small cities":*
+        - Cities with **≤ threshold hotels** = Small City
+        - Cities with **> threshold hotels** = Regular City
+        """
+    )
+
+    with st.sidebar.form("threshold_form"):
+        current_threshold = load_small_city_threshold()
+        threshold_input = st.text_input(
+            "Hotel Count Threshold:", 
+            value=str(current_threshold),
+            help="Cities with this many hotels or fewer will be classified as 'small cities'"
+        )
+        
+        submit_threshold = st.form_submit_button("Update Threshold")
+        
+        if submit_threshold:
+            try:
+                threshold_value = int(threshold_input)
+                if threshold_value >= 0:
+                    save_small_city_threshold(threshold_value)
+                    st.sidebar.success(f"Threshold updated to {threshold_value} hotels!")
+                    threshold_updated = True
+                else:
+                    st.sidebar.error("Threshold must be 0 or greater.")
+            except ValueError:
+                st.sidebar.error("Please enter a valid integer for the threshold.")
+
+    st.sidebar.divider()
+
+    # === CATEGORY WEIGHTS SECTION ===
     st.sidebar.subheader("🎯 Category Priority Weights")
     st.sidebar.markdown(
         """
@@ -27,6 +62,11 @@ def render_sidebar(current_factor_weights, current_category_weights):
             value=str(current_category_weights['city']),
             help="Priority weight for cities (default: 10.0 = highest priority)"
         )
+        small_city_weight = st.text_input(
+            "Small City Weight:", 
+            value=str(current_category_weights['small_city']),
+            help="Priority weight for small cities (default: 5.0 = medium-high priority)"
+        )
         area_weight = st.text_input(
             "Area Weight:", 
             value=str(current_category_weights['area']),
@@ -41,13 +81,15 @@ def render_sidebar(current_factor_weights, current_category_weights):
         # Show category weight distribution
         try:
             city_weight_float = float(city_weight)
+            small_city_weight_float = float(small_city_weight)
             area_weight_float = float(area_weight)
             hotel_weight_float = float(hotel_weight)
-            total = city_weight_float + area_weight_float + hotel_weight_float
+            total = city_weight_float + small_city_weight_float + area_weight_float + hotel_weight_float
             
             if total > 0:
                 st.markdown("**Current Distribution:**")
                 st.write(f"🏙️ Cities: {(city_weight_float/total)*100:.1f}%")
+                st.write(f"🏘️ Small Cities: {(small_city_weight_float/total)*100:.1f}%")
                 st.write(f"🗺️ Areas: {(area_weight_float/total)*100:.1f}%")
                 st.write(f"🏨 Hotels: {(hotel_weight_float/total)*100:.1f}%")
         except ValueError:
@@ -59,14 +101,16 @@ def render_sidebar(current_factor_weights, current_category_weights):
             try:
                 # Convert string inputs to float
                 city_weight_float = float(city_weight)
+                small_city_weight_float = float(small_city_weight)
                 area_weight_float = float(area_weight)
                 hotel_weight_float = float(hotel_weight)
                 
                 # Validate weights (should be >= 0)
-                if all(w >= 0 for w in [city_weight_float, area_weight_float, hotel_weight_float]):
+                if all(w >= 0 for w in [city_weight_float, small_city_weight_float, area_weight_float, hotel_weight_float]):
                     # Update in-memory category weights
                     current_category_weights.update({
                         'city': city_weight_float,
+                        'small_city': small_city_weight_float,
                         'area': area_weight_float,
                         'hotel': hotel_weight_float
                     })
@@ -88,17 +132,17 @@ def render_sidebar(current_factor_weights, current_category_weights):
     st.sidebar.markdown(
         """
         *Fine-tune the importance of each scoring factor within destination types:*
-        - **Cities & Areas**: Hotel count normalization + outbound tourism factors
+        - **Cities, Small Cities & Areas**: Hotel count normalization + outbound tourism factors
         - **Hotels**: City hotel normalization + individual review scores + outbound tourism factors
         
         *Adjust weights below to fine-tune your search experience.*
         """
     )
 
-    dest_types = ["city", "area", "hotel"]
+    dest_types = ["city", "small_city", "area", "hotel"]
 
     for dest_type in dest_types:
-        st.sidebar.subheader(f"{dest_type.title()} Factor Weights")
+        st.sidebar.subheader(f"{dest_type.replace('_', ' ').title()} Factor Weights")
 
         with st.sidebar.form(f"{dest_type}_weight_form"):
             if dest_type == "hotel":
@@ -155,7 +199,7 @@ def render_sidebar(current_factor_weights, current_category_weights):
                     weight_sum = 0
 
                 submit_weights = st.form_submit_button(
-                    f"Update {dest_type.title()} Weights"
+                    f"Update {dest_type.replace('_', ' ').title()} Weights"
                 )
 
                 if submit_weights:
@@ -183,7 +227,7 @@ def render_sidebar(current_factor_weights, current_category_weights):
                                 "departure_score_weight": departure_score_weight_float
                             })
                             
-                            st.sidebar.success(f"{dest_type.title()} weights updated successfully!")
+                            st.sidebar.success(f"{dest_type.replace('_', ' ').title()} weights updated successfully!")
                             factor_weights_updated = True
                             
                             # Mark that weights have changed for potential auto-recalculation
@@ -195,7 +239,7 @@ def render_sidebar(current_factor_weights, current_category_weights):
                         st.sidebar.error("Please enter valid numeric values for all weights.")
 
             else:
-                # City/Area weights (4 factors: hotel count normalization + outbound scores)
+                # City/Small City/Area weights (4 factors: hotel count normalization + outbound scores)
                 hotel_count_weight = st.text_input(
                     f"Global Hotel Normalization:",
                     value=str(current_factor_weights[dest_type]["hotel_count_weight"]),
@@ -230,7 +274,7 @@ def render_sidebar(current_factor_weights, current_category_weights):
                     weight_sum = 0
 
                 submit_weights = st.form_submit_button(
-                    f"Update {dest_type.title()} Weights"
+                    f"Update {dest_type.replace('_', ' ').title()} Weights"
                 )
 
                 if submit_weights:
@@ -253,7 +297,7 @@ def render_sidebar(current_factor_weights, current_category_weights):
                                 "departure_score_weight": departure_score_weight_float
                             })
                             
-                            st.sidebar.success(f"{dest_type.title()} weights updated successfully!")
+                            st.sidebar.success(f"{dest_type.replace('_', ' ').title()} weights updated successfully!")
                             factor_weights_updated = True
                             
                             # Mark that weights have changed for potential auto-recalculation
@@ -271,6 +315,7 @@ def render_search_results(fts_results, current_factor_weights, current_category_
     """
     Render search results with in-memory score calculation using both factor weights and category weights.
     Takes raw FTS results and current weights, calculates scores in Python.
+    Now supports small city classification.
     """
     if not fts_results:
         st.write("No matching destinations found.")
@@ -325,6 +370,10 @@ def render_search_results(fts_results, current_factor_weights, current_category_
 
     st.write(f"Found {len(scored_results)} matching destinations:")
 
+    # Show current threshold info
+    current_threshold = load_small_city_threshold()
+    st.info(f"ℹ️ Current small city threshold: {current_threshold} hotels (cities with ≤{current_threshold} hotels are classified as small cities)")
+
     # Show results with location hierarchy and enhanced score info
     display_df = df[
         [
@@ -360,6 +409,13 @@ def render_search_results(fts_results, current_factor_weights, current_category_
     # Show current weight configuration
     with st.expander("View Current Weight Configuration"):
         
+        # === SMALL CITY THRESHOLD SECTION ===
+        st.subheader("🏘️ Small City Threshold")
+        st.markdown(f"**Current Threshold:** {current_threshold} hotels")
+        st.markdown("Cities with this many hotels or fewer are classified as 'small cities'")
+        
+        st.divider()
+        
         # === CATEGORY WEIGHTS SECTION ===
         st.subheader("🎯 Category Priority Weights")
         
@@ -368,11 +424,22 @@ def render_search_results(fts_results, current_factor_weights, current_category_
         
         for dest_type, weight in current_category_weights.items():
             percentage = (weight / total_category_weight) * 100 if total_category_weight > 0 else 0
+            display_name = dest_type.replace('_', ' ').title()
+            
+            if weight >= 10.0:
+                impact = "Highest priority"
+            elif weight >= 5.0:
+                impact = "High priority"
+            elif weight >= 1.0:
+                impact = "Medium priority"
+            else:
+                impact = "Lower priority"
+                
             category_weights_display.append({
-                "Destination Type": dest_type.title(),
+                "Destination Type": display_name,
                 "Weight": f"{weight:.1f}",
                 "Distribution": f"{percentage:.1f}%",
-                "Impact": "Higher priority" if weight >= 5.0 else "Medium priority" if weight >= 1.0 else "Lower priority"
+                "Impact": impact
             })
         
         category_df = pd.DataFrame(category_weights_display)
@@ -393,10 +460,12 @@ def render_search_results(fts_results, current_factor_weights, current_category_
         # Add meaningful column names based on type
         factor_weights_display = []
         for _, row in factor_weights_df.iterrows():
+            display_type = row["Type"].replace('_', ' ').title()
+            
             if row["Type"] == "hotel":
                 # Hotels show all 6 factors
                 factor_weights_display.append({
-                    "Type": row["Type"],
+                    "Type": display_type,
                     "Global Hotel Count": f"{row['Weight: Hotel Count']:.4f}",
                     "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.4f}",
                     "Agoda Score": f"{row['Weight: Agoda Score']:.4f}",
@@ -405,9 +474,9 @@ def render_search_results(fts_results, current_factor_weights, current_category_
                     "Departure Score": f"{row['Weight: Departure Score']:.4f}"
                 })
             else:
-                # Cities and areas show 4 factors
+                # Cities, small cities and areas show 4 factors
                 factor_weights_display.append({
-                    "Type": row["Type"],
+                    "Type": display_type,
                     "Global Hotel Count": f"{row['Weight: Hotel Count']:.4f}",
                     "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.4f}",
                     "Expenditure Score": f"{row['Weight: Expenditure Score']:.4f}",
@@ -428,6 +497,8 @@ def render_search_results(fts_results, current_factor_weights, current_category_
         
         **Category Multiplier** = Category Weight ÷ Total Category Weight
         
+        **Dynamic Classification:** Cities are automatically classified as "Small City" if their hotel count ≤ threshold.
+        
         *This ensures destination types with higher category weights rank higher, even with lower base scores.*
         """)
 
@@ -436,7 +507,8 @@ def render_search_results(fts_results, current_factor_weights, current_category_
         top_3 = df.head(3)
         
         for i, (_, row) in enumerate(top_3.iterrows(), 1):
-            st.markdown(f"**#{i}: {row['Display Name']} ({row['Type'].title()})**")
+            display_type = row['Type'].replace('_', ' ').title()
+            st.markdown(f"**#{i}: {row['Display Name']} ({display_type})**")
             
             col1, col2, col3 = st.columns(3)
             

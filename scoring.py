@@ -4,10 +4,14 @@ from database import get_connection
 def calculate_scores_in_memory(fts_results, factor_weights, category_weights):
     """
     Calculate final scores for search results in memory using current factor weights and category weights.
+    Now includes dynamic small city classification based on threshold.
     No database updates - just scoring and ranking.
     """
     if not fts_results:
         return []
+    
+    # Load small city threshold
+    small_city_threshold = load_small_city_threshold()
     
     scored_results = []
     
@@ -16,6 +20,10 @@ def calculate_scores_in_memory(fts_results, factor_weights, category_weights):
     
     for result in fts_results:
         dest_type = result['type']
+        
+        # Dynamic small city classification - convert city to small_city if below threshold
+        if dest_type == 'city' and result['hotel_count'] <= small_city_threshold:
+            dest_type = 'small_city'
         
         if dest_type == 'hotel':
             # Hotels use 6 factors
@@ -39,7 +47,7 @@ def calculate_scores_in_memory(fts_results, factor_weights, category_weights):
             ]
             
         else:
-            # Cities and areas use 4 factors (agoda and google are 0)
+            # Cities, small cities and areas use 4 factors (agoda and google are 0)
             factors = [
                 result['hotel_count_normalized'],
                 result['country_hotel_count_normalized'],
@@ -47,7 +55,7 @@ def calculate_scores_in_memory(fts_results, factor_weights, category_weights):
                 result['departure_score_normalized']
             ]
             
-            location_weights = factor_weights[dest_type]  # 'city' or 'area'
+            location_weights = factor_weights[dest_type]  # 'city', 'small_city', or 'area'
             factor_weight_list = [
                 location_weights['hotel_count_weight'],
                 location_weights['country_hotel_count_weight'],
@@ -65,7 +73,7 @@ def calculate_scores_in_memory(fts_results, factor_weights, category_weights):
         
         # Create result tuple in the format expected by UI
         scored_result = (
-            result['type'],
+            dest_type,  # This will now be 'small_city' for small cities
             result['name'],
             result['country_name'],
             result['city_name'],
@@ -171,6 +179,16 @@ def load_weights_from_database():
             'departure_score_weight': 0.001
         }
     
+    if 'small_city' not in weights:
+        weights['small_city'] = {
+            'hotel_count_weight': 1.0,
+            'country_hotel_count_weight': 0.625,
+            'agoda_score_weight': 0,
+            'google_score_weight': 0,
+            'expenditure_score_weight': 0.025,
+            'departure_score_weight': 0.025
+        }
+    
     return weights
 
 
@@ -203,7 +221,35 @@ def load_category_weights_from_database():
     if 'hotel' not in category_weights:
         category_weights['hotel'] = 0.1
     
+    if 'small_city' not in category_weights:
+        category_weights['small_city'] = 5.0
+    
     return category_weights
+
+
+def load_small_city_threshold():
+    """Load small city threshold from database"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT threshold FROM small_city_config WHERE id = 1')
+    result = cursor.fetchone()
+    conn.close()
+    
+    return result[0] if result else 50  # Default to 50 if not found
+
+
+def save_small_city_threshold(threshold):
+    """Save small city threshold to database"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        INSERT OR REPLACE INTO small_city_config (id, threshold) VALUES (1, ?)
+    ''', (threshold,))
+    
+    conn.commit()
+    conn.close()
 
 
 def save_weights_to_database(factor_weights):
