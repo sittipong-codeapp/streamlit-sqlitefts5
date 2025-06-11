@@ -374,24 +374,16 @@ def render_search_results(fts_results, current_factor_weights, current_category_
     current_threshold = load_small_city_threshold()
     st.info(f"ℹ️ Current small city threshold: {current_threshold} hotels (cities with ≤{current_threshold} hotels are classified as small cities)")
 
-    # Show results with location hierarchy and enhanced score info
+    # Show results with 7 columns as requested
     display_df = df[
         [
             "Display Name",
             "Type",
+            "Area",
+            "City",
             "Country",
             "Final Score",
-            "Base Score",
-            "Category Weight",
-            "Category Multiplier",
-            "Normalized: Hotel Count",
-            "Normalized: Country Hotel Count",
-            "Normalized: Agoda Score",
-            "Normalized: Google Score",
-            "Normalized: Expenditure Score",
-            "Normalized: Departure Score",
-            "Hotel Count",
-            "Country Total Hotels",
+            "Base Score"
         ]
     ]
     
@@ -401,8 +393,6 @@ def render_search_results(fts_results, current_factor_weights, current_category_
             "Display Name": st.column_config.TextColumn(width="medium"),
             "Final Score": st.column_config.NumberColumn(format="%.4f"),
             "Base Score": st.column_config.NumberColumn(format="%.4f"),
-            "Category Weight": st.column_config.NumberColumn(format="%.1f"),
-            "Category Multiplier": st.column_config.NumberColumn(format="%.4f"),
         },
     )
 
@@ -502,11 +492,11 @@ def render_search_results(fts_results, current_factor_weights, current_category_
         *This ensures destination types with higher category weights rank higher, even with lower base scores.*
         """)
 
-    # Show scoring breakdown for top 3 results
-    with st.expander("View Detailed Scoring for Top 3 Results"):
-        top_3 = df.head(3)
+    # Show scoring breakdown for top 10 results
+    with st.expander("View Detailed Scoring for Top 10 Results"):
+        top_10 = df.head(10)
         
-        for i, (_, row) in enumerate(top_3.iterrows(), 1):
+        for i, (_, row) in enumerate(top_10.iterrows(), 1):
             display_type = row['Type'].replace('_', ' ').title()
             st.markdown(f"**#{i}: {row['Display Name']} ({display_type})**")
             
