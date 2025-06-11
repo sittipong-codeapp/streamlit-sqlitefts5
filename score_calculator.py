@@ -1,5 +1,6 @@
-# score_calculator.py - Simplified utility functions for normalization and scoring
+# score_calculator.py - Clean utility functions for normalization and scoring
 # Most functionality moved to scoring.py for in-memory calculations
+# This file now contains only essential utility functions
 
 from database import get_connection
 
@@ -88,12 +89,18 @@ def calculate_country_normalization(hotel_count, max_country_hotels, threshold=2
     return normalize_value(hotel_count, max_country_hotels)
 
 
-def validate_weights(weights_dict):
+def validate_location_weights(weights_dict):
     """
-    Validate that all weights are between 0 and 1.
+    Validate that all 4 location weights are between 0 and 1.
     Returns True if valid, False otherwise.
     """
     if not weights_dict:
+        return False
+    
+    expected_keys = {'hotel_count_weight', 'country_hotel_count_weight', 
+                    'expenditure_score_weight', 'departure_score_weight'}
+    
+    if set(weights_dict.keys()) != expected_keys:
         return False
     
     for weight_name, weight_value in weights_dict.items():
@@ -107,6 +114,83 @@ def validate_weights(weights_dict):
     return True
 
 
+def validate_hotel_weights(weights_dict):
+    """
+    Validate that all 6 hotel weights are between 0 and 1.
+    Returns True if valid, False otherwise.
+    """
+    if not weights_dict:
+        return False
+    
+    expected_keys = {'hotel_count_weight', 'country_hotel_count_weight',
+                    'agoda_score_weight', 'google_score_weight',
+                    'expenditure_score_weight', 'departure_score_weight'}
+    
+    if set(weights_dict.keys()) != expected_keys:
+        return False
+    
+    for weight_name, weight_value in weights_dict.items():
+        try:
+            weight_float = float(weight_value)
+            if not (0 <= weight_float <= 1):
+                return False
+        except (ValueError, TypeError):
+            return False
+    
+    return True
+
+
+def validate_weights_by_type(dest_type, weights_dict):
+    """
+    Validate weights based on destination type.
+    Returns True if valid, False otherwise.
+    """
+    if dest_type == 'hotel':
+        return validate_hotel_weights(weights_dict)
+    elif dest_type in ['city', 'area', 'small_city']:
+        return validate_location_weights(weights_dict)
+    else:
+        return False
+
+
+def get_factor_count(dest_type):
+    """
+    Get the expected number of factors for a destination type.
+    Returns 4 for locations, 6 for hotels.
+    """
+    if dest_type == 'hotel':
+        return 6
+    elif dest_type in ['city', 'area', 'small_city']:
+        return 4
+    else:
+        return 0
+
+
+def get_factor_names(dest_type):
+    """
+    Get the factor names for a destination type.
+    Returns list of factor names in correct order.
+    """
+    if dest_type == 'hotel':
+        return [
+            'hotel_count_weight',
+            'country_hotel_count_weight', 
+            'agoda_score_weight',
+            'google_score_weight',
+            'expenditure_score_weight',
+            'departure_score_weight'
+        ]
+    elif dest_type in ['city', 'area', 'small_city']:
+        return [
+            'hotel_count_weight',
+            'country_hotel_count_weight',
+            'expenditure_score_weight', 
+            'departure_score_weight'
+        ]
+    else:
+        return []
+
+
 def get_weight_sum(weights_list):
     """Calculate sum of weights for validation"""
     try:
@@ -115,7 +199,93 @@ def get_weight_sum(weights_list):
         return 0
 
 
-# Legacy functions kept for potential compatibility (but simplified)
+def get_weight_sum_by_type(dest_type, weights_dict):
+    """Calculate sum of weights for a specific destination type"""
+    factor_names = get_factor_names(dest_type)
+    if not factor_names:
+        return 0
+    
+    try:
+        return sum(float(weights_dict[factor_name]) for factor_name in factor_names)
+    except (KeyError, ValueError, TypeError):
+        return 0
+
+
+def create_default_location_weights():
+    """Create default 4-factor weights for locations"""
+    return {
+        'hotel_count_weight': 1.0,
+        'country_hotel_count_weight': 0.625,
+        'expenditure_score_weight': 0.025,
+        'departure_score_weight': 0.025
+    }
+
+
+def create_default_hotel_weights():
+    """Create default 6-factor weights for hotels"""
+    return {
+        'hotel_count_weight': 0.001,
+        'country_hotel_count_weight': 0.001,
+        'agoda_score_weight': 0.001,
+        'google_score_weight': 0.001,
+        'expenditure_score_weight': 0.001,
+        'departure_score_weight': 0.001
+    }
+
+
+def create_default_weights_by_type(dest_type):
+    """Create default weights for a specific destination type"""
+    if dest_type == 'hotel':
+        return create_default_hotel_weights()
+    elif dest_type in ['city', 'area', 'small_city']:
+        return create_default_location_weights()
+    else:
+        return {}
+
+
+def extract_factor_values_from_result(result, dest_type):
+    """
+    Extract factor values from a search result based on destination type.
+    Returns list of factor values in correct order.
+    """
+    if dest_type == 'hotel':
+        # Hotels: 6 factors
+        return [
+            result.get('hotel_count_normalized', 0),
+            result.get('country_hotel_count_normalized', 0),
+            result.get('agoda_score_normalized', 0),
+            result.get('google_score_normalized', 0),
+            result.get('expenditure_score_normalized', 0),
+            result.get('departure_score_normalized', 0)
+        ]
+    elif dest_type in ['city', 'area', 'small_city']:
+        # Locations: 4 factors (no agoda/google)
+        return [
+            result.get('hotel_count_normalized', 0),
+            result.get('country_hotel_count_normalized', 0),
+            result.get('expenditure_score_normalized', 0),
+            result.get('departure_score_normalized', 0)
+        ]
+    else:
+        return []
+
+
+def extract_weight_values_from_dict(weights_dict, dest_type):
+    """
+    Extract weight values from a weights dictionary based on destination type.
+    Returns list of weight values in correct order.
+    """
+    factor_names = get_factor_names(dest_type)
+    if not factor_names:
+        return []
+    
+    try:
+        return [weights_dict[factor_name] for factor_name in factor_names]
+    except KeyError:
+        return []
+
+
+# Backward compatibility function
 def calculate_weighted_score(factors, weights):
     """
     Legacy function - now just calls the same function from scoring.py
@@ -125,12 +295,14 @@ def calculate_weighted_score(factors, weights):
     return new_calculate_weighted_score(factors, weights)
 
 
-# The following functions are REMOVED as they're no longer needed:
+# REMOVED LEGACY FUNCTIONS:
+# These functions are no longer needed due to the refactor:
 # - get_max_values(cursor) -> replaced by get_global_max_values()
 # - normalize_hotel_count() -> replaced by normalize_value()
-# - normalize_country_hotel_count() -> replaced by calculate_country_normalization()
+# - normalize_country_hotel_count() -> replaced by calculate_country_normalization() 
 # - get_outbound_scores() -> this logic moved to scoring.py
-# - get_weights() -> this logic moved to scoring.py  
+# - get_weights() -> this logic moved to scoring.py
 # - get_city_normalization_scores() -> this logic moved to scoring.py
 # - calculate_location_score() -> this logic moved to scoring.py
 # - calculate_hotel_score() -> this logic moved to scoring.py
+# - validate_weights() -> replaced by validate_weights_by_type()

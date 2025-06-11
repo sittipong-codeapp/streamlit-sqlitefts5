@@ -3,7 +3,14 @@ import atexit
 from database import init_database
 from search_destinations import search_destinations
 from ui_components import render_sidebar, render_search_results
-from scoring import load_weights_from_database, save_weights_to_database, load_category_weights_from_database, save_category_weights_to_database, load_small_city_threshold
+from scoring import (
+    load_weights_from_database, 
+    save_weights_to_database, 
+    load_category_weights_from_database, 
+    save_category_weights_to_database, 
+    load_small_city_threshold
+)
+from score_calculator import create_default_weights_by_type
 
 
 # Global in-memory configuration
@@ -27,7 +34,7 @@ def initialize_app():
     """Initialize the application - load weights, category weights and threshold into memory"""
     if not st.session_state.app_config['weights_loaded']:
         try:
-            # Load factor weights from database into memory
+            # Load factor weights from database into memory (now from separate tables)
             st.session_state.app_config['weights'] = load_weights_from_database()
             st.session_state.app_config['weights_loaded'] = True
             
@@ -35,38 +42,10 @@ def initialize_app():
             st.error(f"Failed to load factor weights from database: {e}")
             # Set default factor weights if database load fails
             st.session_state.app_config['weights'] = {
-                'city': {
-                    'hotel_count_weight': 1.0,
-                    'country_hotel_count_weight': 0.625,
-                    'agoda_score_weight': 0,
-                    'google_score_weight': 0,
-                    'expenditure_score_weight': 0.025,
-                    'departure_score_weight': 0.025
-                },
-                'area': {
-                    'hotel_count_weight': 1.0,
-                    'country_hotel_count_weight': 0.625,
-                    'agoda_score_weight': 0,
-                    'google_score_weight': 0,
-                    'expenditure_score_weight': 0.025,
-                    'departure_score_weight': 0.025
-                },
-                'hotel': {
-                    'hotel_count_weight': 0.001,
-                    'country_hotel_count_weight': 0.001,
-                    'agoda_score_weight': 0.001,
-                    'google_score_weight': 0.001,
-                    'expenditure_score_weight': 0.001,
-                    'departure_score_weight': 0.001
-                },
-                'small_city': {
-                    'hotel_count_weight': 1.0,
-                    'country_hotel_count_weight': 0.625,
-                    'agoda_score_weight': 0,
-                    'google_score_weight': 0,
-                    'expenditure_score_weight': 0.025,
-                    'departure_score_weight': 0.025
-                }
+                'city': create_default_weights_by_type('city'),
+                'area': create_default_weights_by_type('area'), 
+                'hotel': create_default_weights_by_type('hotel'),
+                'small_city': create_default_weights_by_type('small_city')
             }
             st.session_state.app_config['weights_loaded'] = True
 
@@ -116,7 +95,7 @@ def save_weights_periodically():
     """Save factor weights and category weights to database if they have changed"""
     success = True
     
-    # Save factor weights if changed
+    # Save factor weights if changed (now goes to separate tables)
     if st.session_state.app_config.get('weights_changed', False):
         try:
             save_weights_to_database(st.session_state.app_config['weights'])
@@ -148,7 +127,7 @@ def handle_search(query):
     if (query != st.session_state.app_config['last_query'] or 
         st.session_state.app_config['last_fts_results'] is None):
         
-        # Perform new FTS search
+        # Perform new FTS search (now returns clean factor structure)
         fts_results = search_destinations(query)
         st.session_state.app_config['last_query'] = query
         st.session_state.app_config['last_fts_results'] = fts_results
@@ -175,6 +154,79 @@ def handle_search(query):
         del st.session_state.category_weights_changed
 
 
+def validate_app_config():
+    """Validate that app configuration has proper factor structure"""
+    weights = st.session_state.app_config.get('weights', {})
+    
+    # Validate that all destination types have proper factor structure
+    from score_calculator import validate_weights_by_type, get_factor_count
+    
+    validation_issues = []
+    
+    for dest_type in ['city', 'area', 'small_city', 'hotel']:
+        if dest_type not in weights:
+            validation_issues.append(f"Missing weights for {dest_type}")
+            continue
+            
+        type_weights = weights[dest_type]
+        expected_factor_count = get_factor_count(dest_type)
+        actual_factor_count = len(type_weights)
+        
+        if actual_factor_count != expected_factor_count:
+            validation_issues.append(
+                f"{dest_type} has {actual_factor_count} factors, expected {expected_factor_count}"
+            )
+            
+        if not validate_weights_by_type(dest_type, type_weights):
+            validation_issues.append(f"Invalid weight structure for {dest_type}")
+    
+    if validation_issues:
+        st.error("App configuration validation failed:")
+        for issue in validation_issues:
+            st.error(f"- {issue}")
+        
+        # Reset to defaults
+        st.warning("Resetting to default weights...")
+        st.session_state.app_config['weights'] = {
+            'city': create_default_weights_by_type('city'),
+            'area': create_default_weights_by_type('area'),
+            'hotel': create_default_weights_by_type('hotel'),
+            'small_city': create_default_weights_by_type('small_city')
+        }
+        st.session_state.app_config['weights_changed'] = True
+        
+        return False
+    
+    return True
+
+
+def display_weight_structure_info():
+    """Display information about the current weight structure"""
+    weights = st.session_state.app_config.get('weights', {})
+    
+    with st.expander("ℹ️ Current Weight Structure", expanded=False):
+        st.markdown("**Factor Structure by Destination Type:**")
+        
+        for dest_type in ['city', 'small_city', 'area', 'hotel']:
+            if dest_type in weights:
+                type_weights = weights[dest_type]
+                factor_count = len(type_weights)
+                
+                st.markdown(f"**{dest_type.replace('_', ' ').title()}**: {factor_count} factors")
+                
+                factors_list = list(type_weights.keys())
+                factors_display = ", ".join([f.replace('_weight', '').replace('_', ' ') for f in factors_list])
+                st.markdown(f"- {factors_display}")
+        
+        st.markdown("""
+        **Clean Factor Structure:**
+        - **Cities/Areas/Small Cities**: 4 factors (no review scores)
+        - **Hotels**: 6 factors (includes agoda/google review scores)
+        
+        This eliminates redundant zero-valued factors and provides cleaner, more maintainable code.
+        """)
+
+
 # Streamlit app
 def main():
     # Set sidebar to collapsed by default
@@ -188,9 +240,15 @@ def main():
     
     # Initialize the application (load weights and threshold)
     initialize_app()
+    
+    # Validate app configuration
+    if not validate_app_config():
+        st.warning("App configuration was reset. Please refresh the page.")
+        return
 
     # Web interface
     st.title("Search Suggestion Sandbox")
+    st.markdown("*Refactored with clean 4/6 factor structure*")
 
     # Add save weights button in sidebar header
     with st.sidebar:
@@ -222,6 +280,9 @@ def main():
         
         st.divider()
 
+    # Display weight structure information
+    display_weight_structure_info()
+
     # Render sidebar with weight configuration
     current_factor_weights = st.session_state.app_config['weights']
     current_category_weights = st.session_state.app_config['category_weights']
@@ -245,6 +306,7 @@ def main():
             handle_search(query.strip())
     elif query and len(query.strip()) < 2:
         st.info("Please enter at least 2 characters to search.")
+
 
 if __name__ == "__main__":
     main()

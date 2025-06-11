@@ -90,16 +90,27 @@ def init_database():
         )
     ''')
 
-    # Create the factor weights table (for storing user preferences)
+    # Create the location weights table (for cities, areas, small_cities - 4 factors)
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS factor_weights (
-            type TEXT PRIMARY KEY,  -- 'city', 'area', 'hotel', or 'small_city'
-            hotel_count_weight REAL DEFAULT 0.25,
-            country_hotel_count_weight REAL DEFAULT 0.25,
-            agoda_score_weight REAL DEFAULT 0.25,
-            google_score_weight REAL DEFAULT 0.25,
-            expenditure_score_weight REAL DEFAULT 0.25,
-            departure_score_weight REAL DEFAULT 0.25
+        CREATE TABLE IF NOT EXISTS location_weights (
+            type TEXT PRIMARY KEY,  -- 'city', 'area', 'small_city'
+            hotel_count_weight REAL DEFAULT 1.0,
+            country_hotel_count_weight REAL DEFAULT 0.625,
+            expenditure_score_weight REAL DEFAULT 0.025,
+            departure_score_weight REAL DEFAULT 0.025
+        )
+    ''')
+
+    # Create the hotel weights table (for hotels - 6 factors)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS hotel_weights (
+            type TEXT PRIMARY KEY DEFAULT 'hotel',
+            hotel_count_weight REAL DEFAULT 0.001,
+            country_hotel_count_weight REAL DEFAULT 0.001,
+            agoda_score_weight REAL DEFAULT 0.001,
+            google_score_weight REAL DEFAULT 0.001,
+            expenditure_score_weight REAL DEFAULT 0.001,
+            departure_score_weight REAL DEFAULT 0.001
         )
     ''')
 
@@ -119,7 +130,7 @@ def init_database():
         )
     ''')
 
-    # Create the destination_score table (stores pre-normalized values, NO total_score)
+    # Create the destination_score table (stores pre-normalized values)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS destination_score (
             destination_id INTEGER PRIMARY KEY,
@@ -132,38 +143,6 @@ def init_database():
             FOREIGN KEY (destination_id) REFERENCES destination(id)
         )
     ''')
-
-    # Remove the old total_score column and index if they exist
-    cursor.execute("PRAGMA table_info(destination_score)")
-    columns = [column[1] for column in cursor.fetchall()]
-    if 'total_score' in columns:
-        # SQLite doesn't support DROP COLUMN directly, so we need to recreate the table
-        cursor.execute('''
-            CREATE TABLE destination_score_new (
-                destination_id INTEGER PRIMARY KEY,
-                hotel_count_normalized INTEGER DEFAULT 0,
-                country_hotel_count_normalized INTEGER DEFAULT 0,
-                agoda_score_normalized INTEGER DEFAULT 0,
-                google_score_normalized INTEGER DEFAULT 0,
-                expenditure_score_normalized INTEGER DEFAULT 0,
-                departure_score_normalized INTEGER DEFAULT 0,
-                FOREIGN KEY (destination_id) REFERENCES destination(id)
-            )
-        ''')
-        
-        cursor.execute('''
-            INSERT INTO destination_score_new 
-            SELECT destination_id, hotel_count_normalized, country_hotel_count_normalized,
-                   agoda_score_normalized, google_score_normalized, 
-                   expenditure_score_normalized, departure_score_normalized
-            FROM destination_score
-        ''')
-        
-        cursor.execute('DROP TABLE destination_score')
-        cursor.execute('ALTER TABLE destination_score_new RENAME TO destination_score')
-
-    # Drop the old total_score index if it exists
-    cursor.execute('DROP INDEX IF EXISTS idx_destination_score_total_score')
 
     # Create necessary indexes if they don't exist
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_city_country_id ON city(country_id)')
@@ -403,19 +382,24 @@ def init_database():
         cursor.execute('INSERT INTO area_fts (rowid, name) SELECT id, name FROM area')
         cursor.execute('INSERT INTO hotel_fts (rowid, name) SELECT id, name FROM hotel')
 
-        # Set default factor weights (for user preferences) - including small_city
-        default_factor_weights = [
-            ('city', 1.0, 0.625, 0, 0, 0.025, 0.025),
-            ('area', 1.0, 0.625, 0, 0, 0.025, 0.025),
-            ('hotel', 0.001, 0.001, 0.001, 0.001, 0.001, 0.001),
-            ('small_city', 1.0, 0.625, 0, 0, 0.025, 0.025),  # Same as city by default
+        # Set default location weights (for cities, areas, small_cities - 4 factors)
+        default_location_weights = [
+            ('city', 1.0, 0.625, 0.025, 0.025),
+            ('area', 1.0, 0.625, 0.025, 0.025),
+            ('small_city', 1.0, 0.625, 0.025, 0.025),
         ]
         cursor.executemany(
-            'INSERT OR IGNORE INTO factor_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            default_factor_weights,
+            'INSERT OR IGNORE INTO location_weights (type, hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?)',
+            default_location_weights,
         )
 
-        # Set default category weights (destination type priority) - including small_city
+        # Set default hotel weights (6 factors)
+        cursor.execute(
+            'INSERT OR IGNORE INTO hotel_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            ('hotel', 0.001, 0.001, 0.001, 0.001, 0.001, 0.001),
+        )
+
+        # Set default category weights (destination type priority)
         default_category_weights = [
             ('city', 10.0),       # Cities get highest priority
             ('area', 1.0),        # Areas get medium priority  
@@ -439,7 +423,28 @@ def init_database():
         if 'st' in globals() and loading_placeholder:
             loading_placeholder.empty()
 
-    # Ensure category weights exist even if data was already loaded (for upgrades) - including small_city
+    # Ensure location weights exist for upgrades (only need to check one type since we insert all together)
+    cursor.execute('SELECT COUNT(*) FROM location_weights WHERE type = ?', ('city',))
+    if cursor.fetchone()[0] == 0:
+        default_location_weights = [
+            ('city', 1.0, 0.625, 0.025, 0.025),
+            ('area', 1.0, 0.625, 0.025, 0.025),
+            ('small_city', 1.0, 0.625, 0.025, 0.025),
+        ]
+        cursor.executemany(
+            'INSERT OR IGNORE INTO location_weights (type, hotel_count_weight, country_hotel_count_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?)',
+            default_location_weights,
+        )
+
+    # Ensure hotel weights exist for upgrades
+    cursor.execute('SELECT COUNT(*) FROM hotel_weights WHERE type = ?', ('hotel',))
+    if cursor.fetchone()[0] == 0:
+        cursor.execute(
+            'INSERT OR IGNORE INTO hotel_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            ('hotel', 0.001, 0.001, 0.001, 0.001, 0.001, 0.001)
+        )
+
+    # Ensure category weights exist for upgrades
     cursor.execute('SELECT COUNT(*) FROM category_weights')
     if cursor.fetchone()[0] == 0:
         default_category_weights = [
@@ -451,21 +456,6 @@ def init_database():
         cursor.executemany(
             'INSERT OR IGNORE INTO category_weights (type, weight) VALUES (?, ?)',
             default_category_weights,
-        )
-
-    # Ensure small_city weights exist for upgrades
-    cursor.execute('SELECT COUNT(*) FROM factor_weights WHERE type = ?', ('small_city',))
-    if cursor.fetchone()[0] == 0:
-        cursor.execute(
-            'INSERT OR IGNORE INTO factor_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            ('small_city', 1.0, 0.625, 0, 0, 0.025, 0.025)
-        )
-
-    cursor.execute('SELECT COUNT(*) FROM category_weights WHERE type = ?', ('small_city',))
-    if cursor.fetchone()[0] == 0:
-        cursor.execute(
-            'INSERT OR IGNORE INTO category_weights (type, weight) VALUES (?, ?)',
-            ('small_city', 5.0)
         )
 
     # Ensure small city config exists for upgrades

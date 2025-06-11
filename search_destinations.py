@@ -3,14 +3,17 @@ from database import get_connection
 
 def search_destinations(query):
     """
-    Simplified FTS search that returns raw normalized data without score calculations.
-    Scoring will be done in Python afterward.
+    Clean FTS search that returns properly structured normalized data.
+    Cities/Areas: 4 factors only (no agoda/google keys)
+    Hotels: 6 factors (all factors included)
     """
     conn = get_connection()
     cursor = conn.cursor()
     match_pattern = f"{query}*"
 
-    # Much simpler FTS query - just get raw normalized data, no score calculations
+    # Execute separate queries for different destination types to get clean factor structures
+    
+    # === CITIES AND AREAS QUERIES (4 factors) ===
     cursor.execute('''
         -- direct_city: Get cities matching query
         SELECT DISTINCT
@@ -24,11 +27,9 @@ def search_destinations(query):
             co.id as country_id,
             NULL as area_id,
             NULL as hotel_id,
-            -- Get pre-normalized scores from destination_score
+            -- Get pre-normalized scores from destination_score (4 factors only)
             COALESCE(s.hotel_count_normalized, 0) as hotel_count_normalized,
             COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
-            0 as agoda_score_normalized,  -- Not applicable for cities
-            0 as google_score_normalized,  -- Not applicable for cities
             COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
             COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
             co.total_hotels as country_total_hotels
@@ -55,8 +56,6 @@ def search_destinations(query):
             NULL as hotel_id,
             COALESCE(s.hotel_count_normalized, 0) as hotel_count_normalized,
             COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
-            0 as agoda_score_normalized,  -- Not applicable for areas
-            0 as google_score_normalized,  -- Not applicable for areas
             COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
             COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
             co.total_hotels as country_total_hotels
@@ -84,8 +83,6 @@ def search_destinations(query):
             NULL as hotel_id,
             COALESCE(s.hotel_count_normalized, 0) as hotel_count_normalized,
             COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
-            0 as agoda_score_normalized,
-            0 as google_score_normalized,
             COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
             COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
             co.total_hotels as country_total_hotels
@@ -112,8 +109,6 @@ def search_destinations(query):
             NULL as hotel_id,
             COALESCE(s.hotel_count_normalized, 0) as hotel_count_normalized,
             COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
-            0 as agoda_score_normalized,
-            0 as google_score_normalized,
             COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
             COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
             co.total_hotels as country_total_hotels
@@ -124,9 +119,12 @@ def search_destinations(query):
         LEFT JOIN destination d ON d.area_id = ar.id AND d.type = 'area'
         LEFT JOIN destination_score s ON d.id = s.destination_id
         WHERE city_fts.name MATCH ?
-        
-        UNION
-        
+    ''', (match_pattern, match_pattern, match_pattern, match_pattern))
+
+    location_results = cursor.fetchall()
+    
+    # === HOTELS QUERY (6 factors) ===
+    cursor.execute('''
         -- direct_hotel: Get hotels matching query
         SELECT DISTINCT
             'hotel' as type,
@@ -139,6 +137,7 @@ def search_destinations(query):
             co.id as country_id,
             ar.id as area_id,
             h.id as hotel_id,
+            -- Get pre-normalized scores from destination_score (6 factors for hotels)
             COALESCE(s.hotel_count_normalized, 0) as hotel_count_normalized,
             COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
             COALESCE(s.agoda_score_normalized, 0) as agoda_score_normalized,
@@ -154,15 +153,24 @@ def search_destinations(query):
         LEFT JOIN destination d ON d.id = (h.id + 20000) AND d.type = 'hotel'
         LEFT JOIN destination_score s ON d.id = s.destination_id
         WHERE fts.name MATCH ?
-        
-        -- No ORDER BY or LIMIT here - we'll sort in Python after score calculation
-    ''', (match_pattern, match_pattern, match_pattern, match_pattern, match_pattern))
+    ''', (match_pattern,))
 
-    results = cursor.fetchall()
+    hotel_results = cursor.fetchall()
     conn.close()
     
-    # Convert to list of dictionaries for easier processing in Python
-    columns = [
+    # Process results into clean dictionary structures
+    processed_results = []
+    
+    # Define column mappings for different result types
+    location_columns = [
+        'type', 'name', 'country_name', 'city_name', 'area_name', 'hotel_count',
+        'city_id', 'country_id', 'area_id', 'hotel_id',
+        'hotel_count_normalized', 'country_hotel_count_normalized',
+        'expenditure_score_normalized', 'departure_score_normalized',
+        'country_total_hotels'
+    ]
+    
+    hotel_columns = [
         'type', 'name', 'country_name', 'city_name', 'area_name', 'hotel_count',
         'city_id', 'country_id', 'area_id', 'hotel_id',
         'hotel_count_normalized', 'country_hotel_count_normalized',
@@ -171,4 +179,34 @@ def search_destinations(query):
         'country_total_hotels'
     ]
     
-    return [dict(zip(columns, row)) for row in results]
+    # Process location results (cities/areas - 4 factors)
+    for row in location_results:
+        result = dict(zip(location_columns, row))
+        # No agoda/google keys for locations - they're simply not included
+        processed_results.append(result)
+    
+    # Process hotel results (hotels - 6 factors)
+    for row in hotel_results:
+        result = dict(zip(hotel_columns, row))
+        # Hotels have all 6 factors including agoda/google
+        processed_results.append(result)
+    
+    return processed_results
+
+
+def search_destinations_legacy(query):
+    """
+    Legacy function that adds agoda/google keys with 0 values for backward compatibility.
+    Use this if other parts of the code expect all results to have agoda/google keys.
+    """
+    results = search_destinations(query)
+    
+    # Add missing agoda/google keys for location results
+    for result in results:
+        if result['type'] in ['city', 'area']:
+            if 'agoda_score_normalized' not in result:
+                result['agoda_score_normalized'] = 0
+            if 'google_score_normalized' not in result:
+                result['google_score_normalized'] = 0
+    
+    return results

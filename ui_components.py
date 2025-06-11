@@ -127,8 +127,8 @@ def render_sidebar(current_factor_weights, current_category_weights):
     st.sidebar.markdown(
         """
         *Fine-tune the importance of each scoring factor within destination types:*
-        - **Cities, Small Cities & Areas**: Hotel count normalization + outbound tourism factors
-        - **Hotels**: City hotel normalization + individual review scores + outbound tourism factors
+        - **Cities, Small Cities & Areas**: 4 factors (hotel count normalization + outbound tourism)
+        - **Hotels**: 6 factors (city hotel normalization + individual review scores + outbound tourism)
         
         *Adjust weights below to fine-tune your search experience.*
         """
@@ -141,176 +141,195 @@ def render_sidebar(current_factor_weights, current_category_weights):
 
         with st.sidebar.form(f"{dest_type}_weight_form"):
             if dest_type == "hotel":
-                # Hotel-specific weights (6 factors: city normalization + hotel review scores + outbound scores)
-                hotel_count_weight = st.text_input(
-                    f"Global Hotel Normalization:",
-                    value=str(current_factor_weights[dest_type]["hotel_count_weight"]),
-                    help="Inherits the global hotel count normalization from the hotel's city"
-                )
-
-                country_hotel_count_weight = st.text_input(
-                    f"Country Hotel Normalization:",
-                    value=str(current_factor_weights[dest_type]["country_hotel_count_weight"]),
-                    help="Inherits the country hotel count normalization from the hotel's city"
-                )
-
-                agoda_score_weight = st.text_input(
-                    f"Agoda Score Weight:",
-                    value=str(current_factor_weights[dest_type]["agoda_score_weight"]),
-                    help="Hotel's individual Agoda review score"
-                )
-
-                google_score_weight = st.text_input(
-                    f"Google Score Weight:",
-                    value=str(current_factor_weights[dest_type]["google_score_weight"]),
-                    help="Hotel's individual Google review score"
-                )
-
-                expenditure_score_weight = st.text_input(
-                    f"Expenditure Score Weight:",
-                    value=str(current_factor_weights[dest_type]["expenditure_score_weight"]),
-                    help="Inherits the outbound tourism expenditure score from the hotel's country"
-                )
-
-                departure_score_weight = st.text_input(
-                    f"Departure Score Weight:",
-                    value=str(current_factor_weights[dest_type]["departure_score_weight"]),
-                    help="Inherits the outbound tourism departure score from the hotel's country"
-                )
-
-                # Convert string inputs to float and show weight sum for validation
-                try:
-                    weight_sum = (
-                        float(hotel_count_weight) + 
-                        float(country_hotel_count_weight) + 
-                        float(agoda_score_weight) + 
-                        float(google_score_weight) + 
-                        float(expenditure_score_weight) + 
-                        float(departure_score_weight)
-                    )
-                    st.write(f"Factor Weight Sum: {weight_sum:.4f}")
-                except ValueError:
-                    st.write("Invalid weight values entered")
-                    weight_sum = 0
-
-                submit_weights = st.form_submit_button(
-                    f"Update {dest_type.replace('_', ' ').title()} Weights"
-                )
-
-                if submit_weights:
-                    try:
-                        # Convert string inputs to float
-                        hotel_count_weight_float = float(hotel_count_weight)
-                        country_hotel_count_weight_float = float(country_hotel_count_weight)
-                        agoda_score_weight_float = float(agoda_score_weight)
-                        google_score_weight_float = float(google_score_weight)
-                        expenditure_score_weight_float = float(expenditure_score_weight)
-                        departure_score_weight_float = float(departure_score_weight)
-
-                        # Validate weights (should be between 0 and 1)
-                        if all(0 <= w <= 1 for w in [hotel_count_weight_float, country_hotel_count_weight_float, 
-                                                   agoda_score_weight_float, google_score_weight_float,
-                                                   expenditure_score_weight_float, departure_score_weight_float]):
-                            
-                            # Update in-memory weights - NO DATABASE CALL
-                            current_factor_weights[dest_type].update({
-                                "hotel_count_weight": hotel_count_weight_float,
-                                "country_hotel_count_weight": country_hotel_count_weight_float,
-                                "agoda_score_weight": agoda_score_weight_float,
-                                "google_score_weight": google_score_weight_float,
-                                "expenditure_score_weight": expenditure_score_weight_float,
-                                "departure_score_weight": departure_score_weight_float
-                            })
-                            
-                            st.sidebar.success(f"{dest_type.replace('_', ' ').title()} weights updated successfully!")
-                            factor_weights_updated = True
-                            
-                            # Mark that weights have changed for potential auto-recalculation
-                            st.session_state.weights_changed = True
-                        else:
-                            st.sidebar.error("All weights must be between 0 and 1.")
-                            
-                    except ValueError:
-                        st.sidebar.error("Please enter valid numeric values for all weights.")
-
+                # Hotel-specific weights (6 factors)
+                factor_weights_updated = render_hotel_factor_form(dest_type, current_factor_weights)
             else:
-                # City/Small City/Area weights (4 factors: hotel count normalization + outbound scores)
-                hotel_count_weight = st.text_input(
-                    f"Global Hotel Normalization:",
-                    value=str(current_factor_weights[dest_type]["hotel_count_weight"]),
-                )
-
-                country_hotel_count_weight = st.text_input(
-                    f"Country Hotel Normalization:",
-                    value=str(current_factor_weights[dest_type]["country_hotel_count_weight"]),
-                )
-
-                expenditure_score_weight = st.text_input(
-                    f"Expenditure Score Weight:",
-                    value=str(current_factor_weights[dest_type]["expenditure_score_weight"]),
-                )
-
-                departure_score_weight = st.text_input(
-                    f"Departure Score Weight:",
-                    value=str(current_factor_weights[dest_type]["departure_score_weight"]),
-                )
-
-                # Convert string inputs to float and show weight sum for validation
-                try:
-                    weight_sum = (
-                        float(hotel_count_weight) + 
-                        float(country_hotel_count_weight) + 
-                        float(expenditure_score_weight) + 
-                        float(departure_score_weight)
-                    )
-                    st.write(f"Factor Weight Sum: {weight_sum:.4f}")
-                except ValueError:
-                    st.write("Invalid weight values entered")
-                    weight_sum = 0
-
-                submit_weights = st.form_submit_button(
-                    f"Update {dest_type.replace('_', ' ').title()} Weights"
-                )
-
-                if submit_weights:
-                    try:
-                        # Convert string inputs to float
-                        hotel_count_weight_float = float(hotel_count_weight)
-                        country_hotel_count_weight_float = float(country_hotel_count_weight)
-                        expenditure_score_weight_float = float(expenditure_score_weight)
-                        departure_score_weight_float = float(departure_score_weight)
-
-                        # Validate weights (should be between 0 and 1)
-                        if all(0 <= w <= 1 for w in [hotel_count_weight_float, country_hotel_count_weight_float,
-                                                   expenditure_score_weight_float, departure_score_weight_float]):
-                            
-                            # Update in-memory weights - NO DATABASE CALL
-                            current_factor_weights[dest_type].update({
-                                "hotel_count_weight": hotel_count_weight_float,
-                                "country_hotel_count_weight": country_hotel_count_weight_float,
-                                "expenditure_score_weight": expenditure_score_weight_float,
-                                "departure_score_weight": departure_score_weight_float
-                            })
-                            
-                            st.sidebar.success(f"{dest_type.replace('_', ' ').title()} weights updated successfully!")
-                            factor_weights_updated = True
-                            
-                            # Mark that weights have changed for potential auto-recalculation
-                            st.session_state.weights_changed = True
-                        else:
-                            st.sidebar.error("All weights must be between 0 and 1.")
-                            
-                    except ValueError:
-                        st.sidebar.error("Please enter valid numeric values for all weights.")
+                # Location weights (4 factors)
+                factor_weights_updated = render_location_factor_form(dest_type, current_factor_weights)
+                
+            if factor_weights_updated:
+                # Mark that factor weights have changed for potential auto-recalculation
+                st.session_state.weights_changed = True
 
     return factor_weights_updated, category_weights_updated
+
+
+def render_location_factor_form(dest_type, current_factor_weights):
+    """Render factor weight form for cities, areas, small_cities (4 factors only)"""
+    
+    # Location weights (4 factors: no agoda/google inputs)
+    hotel_count_weight = st.text_input(
+        f"Global Hotel Normalization:",
+        value=str(current_factor_weights[dest_type]["hotel_count_weight"]),
+        help="Weight for global hotel count normalization (0-1)"
+    )
+
+    country_hotel_count_weight = st.text_input(
+        f"Country Hotel Normalization:",
+        value=str(current_factor_weights[dest_type]["country_hotel_count_weight"]),
+        help="Weight for country-relative hotel count normalization (0-1)"
+    )
+
+    expenditure_score_weight = st.text_input(
+        f"Expenditure Score Weight:",
+        value=str(current_factor_weights[dest_type]["expenditure_score_weight"]),
+        help="Weight for outbound tourism expenditure score (0-1)"
+    )
+
+    departure_score_weight = st.text_input(
+        f"Departure Score Weight:",
+        value=str(current_factor_weights[dest_type]["departure_score_weight"]),
+        help="Weight for outbound tourism departure score (0-1)"
+    )
+
+    # Convert string inputs to float and show weight sum for validation
+    try:
+        weight_sum = (
+            float(hotel_count_weight) + 
+            float(country_hotel_count_weight) + 
+            float(expenditure_score_weight) + 
+            float(departure_score_weight)
+        )
+        st.write(f"Factor Weight Sum: {weight_sum:.4f}")
+    except ValueError:
+        st.write("Invalid weight values entered")
+        weight_sum = 0
+
+    submit_weights = st.form_submit_button(
+        f"Update {dest_type.replace('_', ' ').title()} Weights"
+    )
+
+    if submit_weights:
+        try:
+            # Convert string inputs to float
+            hotel_count_weight_float = float(hotel_count_weight)
+            country_hotel_count_weight_float = float(country_hotel_count_weight)
+            expenditure_score_weight_float = float(expenditure_score_weight)
+            departure_score_weight_float = float(departure_score_weight)
+
+            # Validate weights (should be between 0 and 1)
+            if all(0 <= w <= 1 for w in [hotel_count_weight_float, country_hotel_count_weight_float,
+                                       expenditure_score_weight_float, departure_score_weight_float]):
+                
+                # Update in-memory weights - NO DATABASE CALL
+                current_factor_weights[dest_type].update({
+                    "hotel_count_weight": hotel_count_weight_float,
+                    "country_hotel_count_weight": country_hotel_count_weight_float,
+                    "expenditure_score_weight": expenditure_score_weight_float,
+                    "departure_score_weight": departure_score_weight_float
+                })
+                
+                st.sidebar.success(f"{dest_type.replace('_', ' ').title()} weights updated successfully!")
+                return True
+            else:
+                st.sidebar.error("All weights must be between 0 and 1.")
+                
+        except ValueError:
+            st.sidebar.error("Please enter valid numeric values for all weights.")
+    
+    return False
+
+
+def render_hotel_factor_form(dest_type, current_factor_weights):
+    """Render factor weight form for hotels (6 factors)"""
+    
+    # Hotel-specific weights (6 factors: includes agoda/google)
+    hotel_count_weight = st.text_input(
+        f"Global Hotel Normalization:",
+        value=str(current_factor_weights[dest_type]["hotel_count_weight"]),
+        help="Inherits the global hotel count normalization from the hotel's city"
+    )
+
+    country_hotel_count_weight = st.text_input(
+        f"Country Hotel Normalization:",
+        value=str(current_factor_weights[dest_type]["country_hotel_count_weight"]),
+        help="Inherits the country hotel count normalization from the hotel's city"
+    )
+
+    agoda_score_weight = st.text_input(
+        f"Agoda Score Weight:",
+        value=str(current_factor_weights[dest_type]["agoda_score_weight"]),
+        help="Hotel's individual Agoda review score (0-1)"
+    )
+
+    google_score_weight = st.text_input(
+        f"Google Score Weight:",
+        value=str(current_factor_weights[dest_type]["google_score_weight"]),
+        help="Hotel's individual Google review score (0-1)"
+    )
+
+    expenditure_score_weight = st.text_input(
+        f"Expenditure Score Weight:",
+        value=str(current_factor_weights[dest_type]["expenditure_score_weight"]),
+        help="Inherits the outbound tourism expenditure score from the hotel's country"
+    )
+
+    departure_score_weight = st.text_input(
+        f"Departure Score Weight:",
+        value=str(current_factor_weights[dest_type]["departure_score_weight"]),
+        help="Inherits the outbound tourism departure score from the hotel's country"
+    )
+
+    # Convert string inputs to float and show weight sum for validation
+    try:
+        weight_sum = (
+            float(hotel_count_weight) + 
+            float(country_hotel_count_weight) + 
+            float(agoda_score_weight) + 
+            float(google_score_weight) + 
+            float(expenditure_score_weight) + 
+            float(departure_score_weight)
+        )
+        st.write(f"Factor Weight Sum: {weight_sum:.4f}")
+    except ValueError:
+        st.write("Invalid weight values entered")
+        weight_sum = 0
+
+    submit_weights = st.form_submit_button(
+        f"Update {dest_type.replace('_', ' ').title()} Weights"
+    )
+
+    if submit_weights:
+        try:
+            # Convert string inputs to float
+            hotel_count_weight_float = float(hotel_count_weight)
+            country_hotel_count_weight_float = float(country_hotel_count_weight)
+            agoda_score_weight_float = float(agoda_score_weight)
+            google_score_weight_float = float(google_score_weight)
+            expenditure_score_weight_float = float(expenditure_score_weight)
+            departure_score_weight_float = float(departure_score_weight)
+
+            # Validate weights (should be between 0 and 1)
+            if all(0 <= w <= 1 for w in [hotel_count_weight_float, country_hotel_count_weight_float, 
+                                       agoda_score_weight_float, google_score_weight_float,
+                                       expenditure_score_weight_float, departure_score_weight_float]):
+                
+                # Update in-memory weights - NO DATABASE CALL
+                current_factor_weights[dest_type].update({
+                    "hotel_count_weight": hotel_count_weight_float,
+                    "country_hotel_count_weight": country_hotel_count_weight_float,
+                    "agoda_score_weight": agoda_score_weight_float,
+                    "google_score_weight": google_score_weight_float,
+                    "expenditure_score_weight": expenditure_score_weight_float,
+                    "departure_score_weight": departure_score_weight_float
+                })
+                
+                st.sidebar.success(f"{dest_type.replace('_', ' ').title()} weights updated successfully!")
+                return True
+            else:
+                st.sidebar.error("All weights must be between 0 and 1.")
+                
+        except ValueError:
+            st.sidebar.error("Please enter valid numeric values for all weights.")
+    
+    return False
 
 
 def render_search_results(fts_results, current_factor_weights, current_category_weights):
     """
     Render search results with in-memory score calculation using both factor weights and category weights.
     Takes raw FTS results and current weights, calculates scores in Python.
-    Now supports small city classification.
+    Now supports small city classification and clean factor structure.
     """
     if not fts_results:
         st.write("No matching destinations found.")
@@ -419,11 +438,53 @@ def render_search_results(fts_results, current_factor_weights, current_category_
         
         st.divider()
         
+        # === FACTOR WEIGHTS DISPLAY ===
+        st.subheader("⚙️ Current Factor Weights")
+        
+        factor_weights_display = []
+        
+        for dest_type, weights in current_factor_weights.items():
+            display_name = dest_type.replace('_', ' ').title()
+            
+            if dest_type == 'hotel':
+                # Hotels have 6 factors
+                factor_weights_display.append({
+                    "Type": display_name,
+                    "Hotel Count": f"{weights['hotel_count_weight']:.3f}",
+                    "Country Hotel Count": f"{weights['country_hotel_count_weight']:.3f}",
+                    "Agoda Score": f"{weights['agoda_score_weight']:.3f}",
+                    "Google Score": f"{weights['google_score_weight']:.3f}",
+                    "Expenditure Score": f"{weights['expenditure_score_weight']:.3f}",
+                    "Departure Score": f"{weights['departure_score_weight']:.3f}",
+                    "Factor Count": "6"
+                })
+            else:
+                # Locations have 4 factors
+                factor_weights_display.append({
+                    "Type": display_name,
+                    "Hotel Count": f"{weights['hotel_count_weight']:.3f}",
+                    "Country Hotel Count": f"{weights['country_hotel_count_weight']:.3f}",
+                    "Agoda Score": "N/A",  # Not applicable for locations
+                    "Google Score": "N/A",  # Not applicable for locations
+                    "Expenditure Score": f"{weights['expenditure_score_weight']:.3f}",
+                    "Departure Score": f"{weights['departure_score_weight']:.3f}",
+                    "Factor Count": "4"
+                })
+        
+        factor_df = pd.DataFrame(factor_weights_display)
+        st.dataframe(factor_df, hide_index=True)
+        
+        st.divider()
+        
         # === SCORING EXPLANATION ===
         st.subheader("📊 Scoring Explanation")
         st.markdown("""
+        **Clean Factor Structure:**
+        - **Cities, Small Cities & Areas**: 4 factors only (hotel count, country hotel count, expenditure, departure)
+        - **Hotels**: 6 factors (city normalization + agoda/google reviews + outbound tourism)
+        
         **Two-Tier Scoring System:**
-        1. **Base Score** = Weighted average of normalized factors (0-100)
+        1. **Base Score** = Weighted average of relevant factors (0-100)
         2. **Final Score** = Base Score × Category Multiplier
         
         **Category Multiplier** = Category Weight ÷ Total Category Weight
@@ -452,7 +513,7 @@ def render_search_results(fts_results, current_factor_weights, current_category_
             with col3:
                 st.metric("Category Multiplier", f"{row['Category Multiplier']:.4f}")
             
-            # Show factor breakdown
+            # Show factor breakdown based on type
             if row['Type'] == 'hotel':
                 factors = [
                     ("Global Hotel Count", row['Normalized: Hotel Count'], row['Weight: Hotel Count']),
@@ -463,6 +524,7 @@ def render_search_results(fts_results, current_factor_weights, current_category_
                     ("Departure Score", row['Normalized: Departure Score'], row['Weight: Departure Score'])
                 ]
             else:
+                # Cities, areas, small_cities - only show 4 relevant factors
                 factors = [
                     ("Global Hotel Count", row['Normalized: Hotel Count'], row['Weight: Hotel Count']),
                     ("Country Hotel Count", row['Normalized: Country Hotel Count'], row['Weight: Country Hotel Count']),
