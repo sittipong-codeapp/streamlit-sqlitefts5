@@ -1,7 +1,3 @@
-# score_calculator.py - Clean utility functions for normalization and scoring
-# Most functionality moved to scoring.py for in-memory calculations
-# This file now contains only essential utility functions
-
 from database import get_connection
 
 
@@ -211,34 +207,18 @@ def get_weight_sum_by_type(dest_type, weights_dict):
         return 0
 
 
-def create_default_location_weights():
-    """Create default 4-factor weights for locations"""
-    return {
-        'hotel_count_weight': 1.0,
-        'country_hotel_count_weight': 0.625,
-        'expenditure_score_weight': 0.025,
-        'departure_score_weight': 0.025
-    }
-
-
-def create_default_hotel_weights():
-    """Create default 6-factor weights for hotels"""
-    return {
-        'hotel_count_weight': 0.001,
-        'country_hotel_count_weight': 0.001,
-        'agoda_score_weight': 0.001,
-        'google_score_weight': 0.001,
-        'expenditure_score_weight': 0.001,
-        'departure_score_weight': 0.001
-    }
-
-
 def create_default_weights_by_type(dest_type):
     """Create default weights for a specific destination type"""
+    from config import get_default_city_weights, get_default_small_city_weights, get_default_area_weights, get_default_hotel_weights
+    
     if dest_type == 'hotel':
-        return create_default_hotel_weights()
-    elif dest_type in ['city', 'area', 'small_city']:
-        return create_default_location_weights()
+        return get_default_hotel_weights()
+    elif dest_type == 'city':
+        return get_default_city_weights()
+    elif dest_type == 'small_city':
+        return get_default_small_city_weights()
+    elif dest_type == 'area':
+        return get_default_area_weights()
     else:
         return {}
 
@@ -293,16 +273,3 @@ def calculate_weighted_score(factors, weights):
     """
     from scoring import calculate_weighted_score as new_calculate_weighted_score
     return new_calculate_weighted_score(factors, weights)
-
-
-# REMOVED LEGACY FUNCTIONS:
-# These functions are no longer needed due to the refactor:
-# - get_max_values(cursor) -> replaced by get_global_max_values()
-# - normalize_hotel_count() -> replaced by normalize_value()
-# - normalize_country_hotel_count() -> replaced by calculate_country_normalization() 
-# - get_outbound_scores() -> this logic moved to scoring.py
-# - get_weights() -> this logic moved to scoring.py
-# - get_city_normalization_scores() -> this logic moved to scoring.py
-# - calculate_location_score() -> this logic moved to scoring.py
-# - calculate_hotel_score() -> this logic moved to scoring.py
-# - validate_weights() -> replaced by validate_weights_by_type()
