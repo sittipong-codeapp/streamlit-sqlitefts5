@@ -419,47 +419,6 @@ def render_search_results(fts_results, current_factor_weights, current_category_
         
         st.divider()
         
-        # === FACTOR WEIGHTS SECTION ===
-        st.subheader("⚙️ Factor Weights by Destination Type")
-        
-        # Group by type and show weights with appropriate labels
-        factor_weights_df = df[
-            ["Type", "Weight: Hotel Count", "Weight: Country Hotel Count", 
-             "Weight: Agoda Score", "Weight: Google Score", 
-             "Weight: Expenditure Score", "Weight: Departure Score"]
-        ].drop_duplicates()
-        
-        # Add meaningful column names based on type
-        factor_weights_display = []
-        for _, row in factor_weights_df.iterrows():
-            display_type = row["Type"].replace('_', ' ').title()
-            
-            if row["Type"] == "hotel":
-                # Hotels show all 6 factors
-                factor_weights_display.append({
-                    "Type": display_type,
-                    "Global Hotel Count": f"{row['Weight: Hotel Count']:.4f}",
-                    "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.4f}",
-                    "Agoda Score": f"{row['Weight: Agoda Score']:.4f}",
-                    "Google Score": f"{row['Weight: Google Score']:.4f}",
-                    "Expenditure Score": f"{row['Weight: Expenditure Score']:.4f}",
-                    "Departure Score": f"{row['Weight: Departure Score']:.4f}"
-                })
-            else:
-                # Cities, small cities and areas show 4 factors
-                factor_weights_display.append({
-                    "Type": display_type,
-                    "Global Hotel Count": f"{row['Weight: Hotel Count']:.4f}",
-                    "Country Hotel Count": f"{row['Weight: Country Hotel Count']:.4f}",
-                    "Expenditure Score": f"{row['Weight: Expenditure Score']:.4f}",
-                    "Departure Score": f"{row['Weight: Departure Score']:.4f}",
-                    "Agoda Score": "N/A",
-                    "Google Score": "N/A"
-                })
-        
-        factor_weights_display_df = pd.DataFrame(factor_weights_display)
-        st.dataframe(factor_weights_display_df, hide_index=True)
-        
         # === SCORING EXPLANATION ===
         st.subheader("📊 Scoring Explanation")
         st.markdown("""
