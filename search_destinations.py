@@ -3,17 +3,39 @@ from database import get_connection
 
 def search_destinations(query):
     """
-    Clean FTS search that returns properly structured normalized data.
-    Cities/Areas: 4 factors only (no agoda/google keys)
-    Hotels: 6 factors (all factors included)
+    Main search with hierarchical priority logic:
+    1. Search cities and areas first
+    2. Only search hotels if slots remain unfilled
+    3. Always attempt to return up to 20 results total
+    """
+    # Phase 1: Search cities and areas
+    location_results = search_locations_only(query)
+    
+    # Phase 2: Decision point
+    if len(location_results) >= 20:
+        # Enough locations found, skip hotels
+        return location_results
+    
+    # Phase 3: Search hotels to fill remaining slots
+    slots_needed = 20 - len(location_results)
+    hotel_results = search_hotels_only(query, limit=slots_needed)
+    
+    # Phase 4: Combine results
+    combined_results = location_results + hotel_results
+    
+    return combined_results
+
+
+def search_locations_only(query):
+    """
+    Search cities and areas only (no hotels).
+    Returns properly structured normalized data with 4 factors.
     """
     conn = get_connection()
     cursor = conn.cursor()
     match_pattern = f"{query}*"
 
-    # Execute separate queries for different destination types to get clean factor structures
-    
-    # === CITIES AND AREAS QUERIES (4 factors) ===
+    # Execute queries for cities and areas only (no hotel queries)
     cursor.execute('''
         -- direct_city: Get cities matching query
         SELECT DISTINCT
@@ -122,10 +144,40 @@ def search_destinations(query):
     ''', (match_pattern, match_pattern, match_pattern, match_pattern))
 
     location_results = cursor.fetchall()
+    conn.close()
     
-    # === HOTELS QUERY (6 factors) ===
+    # Process results into clean dictionary structures
+    processed_results = []
+    
+    # Define column mapping for location results (cities/areas - 4 factors)
+    location_columns = [
+        'type', 'name', 'country_name', 'city_name', 'area_name', 'hotel_count',
+        'city_id', 'country_id', 'area_id', 'hotel_id',
+        'hotel_count_normalized', 'country_hotel_count_normalized',
+        'expenditure_score_normalized', 'departure_score_normalized',
+        'country_total_hotels'
+    ]
+    
+    # Process location results (cities/areas - 4 factors, no agoda/google keys)
+    for row in location_results:
+        result = dict(zip(location_columns, row))
+        processed_results.append(result)
+    
+    return processed_results
+
+
+def search_hotels_only(query, limit=20):
+    """
+    Search hotels only with limit parameter.
+    Returns properly structured normalized data with 6 factors.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    match_pattern = f"{query}*"
+
+    # Execute hotel query only with LIMIT
     cursor.execute('''
-        -- direct_hotel: Get hotels matching query
+        -- direct_hotel: Get hotels matching query with limit
         SELECT DISTINCT
             'hotel' as type,
             h.name, 
@@ -153,7 +205,8 @@ def search_destinations(query):
         LEFT JOIN destination d ON d.id = (h.id + 20000) AND d.type = 'hotel'
         LEFT JOIN destination_score s ON d.id = s.destination_id
         WHERE fts.name MATCH ?
-    ''', (match_pattern,))
+        LIMIT ?
+    ''', (match_pattern, limit))
 
     hotel_results = cursor.fetchall()
     conn.close()
@@ -161,15 +214,7 @@ def search_destinations(query):
     # Process results into clean dictionary structures
     processed_results = []
     
-    # Define column mappings for different result types
-    location_columns = [
-        'type', 'name', 'country_name', 'city_name', 'area_name', 'hotel_count',
-        'city_id', 'country_id', 'area_id', 'hotel_id',
-        'hotel_count_normalized', 'country_hotel_count_normalized',
-        'expenditure_score_normalized', 'departure_score_normalized',
-        'country_total_hotels'
-    ]
-    
+    # Define column mapping for hotel results (hotels - 6 factors)
     hotel_columns = [
         'type', 'name', 'country_name', 'city_name', 'area_name', 'hotel_count',
         'city_id', 'country_id', 'area_id', 'hotel_id',
@@ -179,16 +224,9 @@ def search_destinations(query):
         'country_total_hotels'
     ]
     
-    # Process location results (cities/areas - 4 factors)
-    for row in location_results:
-        result = dict(zip(location_columns, row))
-        # No agoda/google keys for locations - they're simply not included
-        processed_results.append(result)
-    
-    # Process hotel results (hotels - 6 factors)
+    # Process hotel results (hotels - 6 factors including agoda/google)
     for row in hotel_results:
         result = dict(zip(hotel_columns, row))
-        # Hotels have all 6 factors including agoda/google
         processed_results.append(result)
     
     return processed_results

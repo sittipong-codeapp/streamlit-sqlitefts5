@@ -4,6 +4,7 @@ from database import get_connection
 def calculate_scores_in_memory(fts_results, factor_weights):
     """
     Calculate final scores for search results in memory using new coefficient-based scoring system.
+    Updated to handle hierarchical search results (locations + conditional hotels).
     New formula: Final Score = (factor1×coeff1 + factor2×coeff2 + ... + factorN×coeffN) / N
     Where N = 4 for cities/areas, N = 6 for hotels
     """
@@ -97,9 +98,37 @@ def calculate_scores_in_memory(fts_results, factor_weights):
         
         scored_results.append(scored_result)
     
-    # Sort by final score (descending) and limit to top 20
+    # CRITICAL: Sort by final score (descending) and limit to top 20
+    # This ensures proper ranking when locations + hotels are combined
     scored_results.sort(key=lambda x: x[12], reverse=True)  # x[12] is final_score
     return scored_results[:20]
+
+
+def calculate_scores_for_hierarchical_search(fts_results, factor_weights):
+    """
+    Alternative scoring function specifically designed for hierarchical search.
+    Provides more explicit handling of the two-phase result combination.
+    """
+    if not fts_results:
+        return []
+    
+    # Separate results by type for analysis
+    location_results = [r for r in fts_results if r['type'] in ['city', 'area']]
+    hotel_results = [r for r in fts_results if r['type'] == 'hotel']
+    
+    # Calculate scores for all results using main function
+    scored_results = calculate_scores_in_memory(fts_results, factor_weights)
+    
+    # Optional: Add debug info about search composition
+    if hasattr(scored_results, '_debug_info'):
+        scored_results._debug_info = {
+            'location_count': len(location_results),
+            'hotel_count': len(hotel_results),
+            'total_count': len(fts_results),
+            'hotel_search_triggered': len(hotel_results) > 0
+        }
+    
+    return scored_results
 
 
 def load_location_weights_from_database():
