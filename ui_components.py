@@ -40,6 +40,9 @@ def render_sidebar(current_factor_weights):
                     save_small_city_threshold(threshold_value)
                     st.sidebar.success(f"Threshold updated to {threshold_value} hotels!")
                     threshold_updated = True
+                    # Clear cache when threshold changes
+                    st.session_state.app_config['last_search_results'] = None
+                    st.session_state.app_config['threshold_changed'] = True
                 else:
                     st.sidebar.error("Threshold must be 0 or greater.")
             except ValueError:
@@ -78,8 +81,9 @@ def render_sidebar(current_factor_weights):
                 factor_weights_updated = render_location_factor_form(dest_type, current_factor_weights)
                 
             if factor_weights_updated:
-                # Mark that factor weights have changed for potential auto-recalculation
-                st.session_state.weights_changed = True
+                # FIXED: Set flag in correct location and clear cache immediately
+                st.session_state.app_config['weights_changed'] = True
+                st.session_state.app_config['last_search_results'] = None
 
     return factor_weights_updated
 

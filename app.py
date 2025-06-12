@@ -90,16 +90,19 @@ def handle_search(query):
     current_factor_weights = st.session_state.app_config['weights']
     
     # Check if we need to perform a new search or can reuse cached results
+    # FIXED: Now properly detects weight changes and threshold changes
     if (query != st.session_state.app_config['last_query'] or 
         st.session_state.app_config['last_search_results'] is None or
-        st.session_state.app_config.get('weights_changed', False)):
+        st.session_state.app_config.get('weights_changed', False) or
+        st.session_state.app_config.get('threshold_changed', False)):
         
         # Perform new search - this now returns pre-scored results
         search_results = search_destinations(query)
         st.session_state.app_config['last_query'] = query
         st.session_state.app_config['last_search_results'] = search_results
-        # Reset weights changed flag after new search
+        # Reset flags after new search
         st.session_state.app_config['weights_changed'] = False
+        st.session_state.app_config['threshold_changed'] = False
         
     else:
         # Reuse cached search results (they're already scored)
@@ -107,12 +110,6 @@ def handle_search(query):
     
     # Render results - they come pre-scored from the enhanced search logic
     render_search_results(search_results, current_factor_weights)
-    
-    # If weights were changed during this render, mark them as changed
-    if hasattr(st.session_state, 'weights_changed') and st.session_state.weights_changed:
-        st.session_state.app_config['weights_changed'] = True
-        # Clear the session state flag
-        del st.session_state.weights_changed
 
 
 def validate_app_config():
@@ -207,9 +204,8 @@ def main():
     
     factor_weights_updated = render_sidebar(current_factor_weights)
     
-    # Mark weights as changed if they were updated
-    if factor_weights_updated:
-        st.session_state.app_config['weights_changed'] = True
+    # REMOVED: The old logic that manually set weights_changed flag
+    # The flag is now set directly in ui_components.py when weights are updated
     
     query = st.text_input("Enter your search query:")
     
