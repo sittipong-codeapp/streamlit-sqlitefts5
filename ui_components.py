@@ -12,16 +12,8 @@ def render_sidebar(current_factor_weights):
     threshold_updated = False
 
     # === SMALL CITY THRESHOLD SECTION (TOP PRIORITY) ===
-    st.sidebar.subheader("🏘️ Small City/Area Threshold")
-    st.sidebar.markdown(
-        """
-        *Set the hotel count threshold that determines classification:*
-        - Cities with **≤ threshold hotels** = Small City
-        - Cities with **> threshold hotels** = Regular City
-        - Areas in **small cities** = Small Area (regardless of area size)
-        - Areas in **regular cities** = Regular Area (regardless of area size)
-        """
-    )
+    st.sidebar.subheader("🏘️ Small City Threshold")
+
 
     with st.sidebar.form("threshold_form"):
         current_threshold = load_small_city_threshold()
@@ -55,33 +47,13 @@ def render_sidebar(current_factor_weights):
     st.sidebar.markdown(
         """
         *ปรับ slider เพื่อให้น้ำหนักปัจจัยต่างๆ*
-        
-        **Scoring Formula:** `Σ(factorᵢ × coeffᵢ) / N`
-        
-        - **Cities, Areas**: 4 factors
-            -   จำนวนโรงแรมเทียบกับทั้งโลก (Hotel Count / World)
-            -   จำนวนโรงแรมเทียบในประเทศ (Hotel Count / Country)
-            -   ค่าใช้จ่าย (Expenditure)
-            -   คนเดินทางขาออก (Departure)
-        - **Hotels**: 6 factors 
-            -   คะแนนของเมือง (City Score)
-            -   คะแนนของพื้นที่ (Area Score)
-            -   คะแนน ranking จาก Agoda (Agoda Score)
-            -   คะแนน ranking จาก Google Trends (Google Score)     
-            -   ค่าใช้จ่าย (Expenditure)
-            -   คนเดินทางขาออก (Departure)
-
-        
-        *Use coefficient values to control destination type priority:*
-        - **High coefficients (≈1.0)**: Destination type will rank higher
-        - **Low coefficients (≈0.01)**: Destination type will rank lower
         """
     )
 
     dest_types = ["city", "small_city", "area", "small_area", "hotel"]
 
     for dest_type in dest_types:
-        st.sidebar.subheader(f"{dest_type.replace('_', ' ').title()} Coefficients")
+        st.sidebar.subheader(f"{dest_type.replace('_', ' ').title()} Scoring Factors")
 
         with st.sidebar.form(f"{dest_type}_weight_form"):
             if dest_type == "hotel":
@@ -104,43 +76,43 @@ def render_location_factor_form(dest_type, current_factor_weights):
     
     # Location weights (4 factors: no agoda/google inputs)
     hotel_count_weight = st.slider(
-        f"Global Hotel Normalization:",
+        f"Gจำนวนโรงแรมเทียบกับทั้งโลก (Hotel Count / World)",
         min_value=0.0,
         max_value=1.0,
         value=float(current_factor_weights[dest_type]["hotel_count_weight"]),
-        step=0.01,
+        step=0.1,
         help="Coefficient for global hotel count normalization (0-1)"
     )
 
     country_hotel_count_weight = st.slider(
-        f"Country Hotel Normalization:",
+        f"จำนวนโรงแรมเทียบในประเทศ (Hotel Count / Country)",
         min_value=0.0,
         max_value=1.0,
         value=float(current_factor_weights[dest_type]["country_hotel_count_weight"]),
-        step=0.01,
+        step=0.1,
         help="Coefficient for country-relative hotel count normalization (0-1)"
     )
 
     expenditure_score_weight = st.slider(
-        f"Expenditure Score Coefficient:",
+        f"ค่าใช้จ่าย (Expenditure)",
         min_value=0.0,
         max_value=1.0,
         value=float(current_factor_weights[dest_type]["expenditure_score_weight"]),
-        step=0.01,
+        step=0.1,
         help="Coefficient for outbound tourism expenditure score (0-1)"
     )
 
     departure_score_weight = st.slider(
-        f"Departure Score Coefficient:",
+        f"คนเดินทางขาออก (Departure)",
         min_value=0.0,
         max_value=1.0,
         value=float(current_factor_weights[dest_type]["departure_score_weight"]),
-        step=0.01,
+        step=0.1,
         help="Coefficient for outbound tourism departure score (0-1)"
     )
 
     submit_weights = st.form_submit_button(
-        f"Update {dest_type.replace('_', ' ').title()} Coefficients"
+        f"Update {dest_type.replace('_', ' ').title()} Scoring Factors"
     )
 
     if submit_weights:
@@ -167,61 +139,61 @@ def render_hotel_factor_form(dest_type, current_factor_weights):
     
     # Hotel-specific weights (6 factors: Updated labels and variable names)
     city_score_weight = st.slider(
-        f"City Score Coefficient:",
+        f"คะแนนของเมือง (City Score)",
         min_value=0.0,
         max_value=1.0,
         value=float(current_factor_weights[dest_type]["city_score_weight"]),
-        step=0.01,
+        step=0.1,
         help="Coefficient for the hotel's parent city calculated score (0-1)"
     )
 
     area_score_weight = st.slider(
-        f"Area Score Coefficient:",
+        f"คะแนนของพื้นที่ (Area Score)",
         min_value=0.0,
         max_value=1.0,
         value=float(current_factor_weights[dest_type]["area_score_weight"]),
-        step=0.01,
+        step=0.1,
         help="Coefficient for the hotel's parent area calculated score (0-1)"
     )
 
     agoda_score_weight = st.slider(
-        f"Agoda Score Coefficient:",
+        f"คะแนน ranking จาก Agoda (Agoda Score)",
         min_value=0.0,
         max_value=1.0,
         value=float(current_factor_weights[dest_type]["agoda_score_weight"]),
-        step=0.01,
+        step=0.1,
         help="Hotel's individual Agoda review score coefficient (0-1)"
     )
 
     google_score_weight = st.slider(
-        f"Google Score Coefficient:",
+        f"คะแนน ranking จาก Google Trends (Google Score)",
         min_value=0.0,
         max_value=1.0,
         value=float(current_factor_weights[dest_type]["google_score_weight"]),
-        step=0.01,
+        step=0.1,
         help="Hotel's individual Google review score coefficient (0-1)"
     )
 
     expenditure_score_weight = st.slider(
-        f"Expenditure Score Coefficient:",
+        f"ค่าใช้จ่าย (Expenditure)",
         min_value=0.0,
         max_value=1.0,
         value=float(current_factor_weights[dest_type]["expenditure_score_weight"]),
-        step=0.01,
+        step=0.1,
         help="Inherits the outbound tourism expenditure score from the hotel's country"
     )
 
     departure_score_weight = st.slider(
-        f"Departure Score Coefficient:",
+        f"คนเดินทางขาออก (Departure)",
         min_value=0.0,
         max_value=1.0,
         value=float(current_factor_weights[dest_type]["departure_score_weight"]),
-        step=0.01,
+        step=0.1,
         help="Inherits the outbound tourism departure score from the hotel's country"
     )
 
     submit_weights = st.form_submit_button(
-        f"Update {dest_type.replace('_', ' ').title()} Coefficients"
+        f"Update {dest_type.replace('_', ' ').title()} Scoring Factors"
     )
 
     if submit_weights:
@@ -345,7 +317,7 @@ def render_search_results(fts_results, current_factor_weights):
         total_sum = 0
         
         for coeff, factor in factors:
-            calc_parts.append(f"{coeff:.2f}({int(factor)})")
+            calc_parts.append(f"{coeff:.1f}({int(factor)})")
             total_sum += coeff * factor
         
         # Format: coeff(factor) + coeff(factor) + ... => sum / count => final_score
