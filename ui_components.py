@@ -287,15 +287,6 @@ def render_search_results(fts_results, current_factor_weights):
         axis=1,
     )
 
-    # Add Hotel Number column - show raw hotel count for locations, blank for hotels
-    df["Hotel Number"] = df.apply(
-        lambda row: (
-            "" if row["Type"] == "hotel" 
-            else str(int(row["Hotel Count"]))
-        ),
-        axis=1,
-    )
-
     # Add Calculation column - show detailed scoring breakdown
     # WARNING: DO NOT CHANGE THE CALCULATION FORMAT! Must remain: coeff(factor) + coeff(factor) => sum / count => result
     def create_calculation_string(row):
@@ -334,22 +325,19 @@ def render_search_results(fts_results, current_factor_weights):
         calculation_str = " + ".join(calc_parts)
         final_score = total_sum / factor_count
         
-        return f"{calculation_str} => {total_sum:.1f} / {factor_count} => {final_score:.2f}"
+        return f"{calculation_str}"
     
     df["Calculation"] = df.apply(create_calculation_string, axis=1)
 
     st.write(f"Found {len(scored_results)} matching destinations:")
 
-    # Show results with enhanced calculation display
+    # Show results with removed columns: Area, City, and Hotel Number removed
     display_df = df[
         [
             "Display Name",
             "Type",
-            "Area",
-            "City",
             "Country",
             "Final Score",
-            "Hotel Number",
             "Calculation"
         ]
     ]
@@ -359,9 +347,9 @@ def render_search_results(fts_results, current_factor_weights):
         column_config={
             "Display Name": st.column_config.TextColumn(width="medium"),
             "Final Score": st.column_config.NumberColumn(format="%.4f"),
-            "Hotel Number": st.column_config.TextColumn(width="small"),
             "Calculation": st.column_config.TextColumn(width="extra_large"),
         },
+        use_container_width=True
     )
 
 

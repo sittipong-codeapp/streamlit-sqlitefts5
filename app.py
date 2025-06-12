@@ -244,7 +244,8 @@ def main():
     # Set sidebar to collapsed by default
     st.set_page_config(
         page_title="Search Suggestion Sandbox", 
-        initial_sidebar_state="collapsed"
+        initial_sidebar_state="collapsed",
+        layout="wide"
     )
 
     # Initialize the database
