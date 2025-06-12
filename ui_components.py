@@ -88,27 +88,39 @@ def render_location_factor_form(dest_type, current_factor_weights):
     """Render factor weight form for cities, areas, small_cities, small_areas (4 factors only)"""
     
     # Location weights (4 factors: no agoda/google inputs)
-    hotel_count_weight = st.text_input(
+    hotel_count_weight = st.slider(
         f"Global Hotel Normalization:",
-        value=str(current_factor_weights[dest_type]["hotel_count_weight"]),
+        min_value=0.0,
+        max_value=1.0,
+        value=float(current_factor_weights[dest_type]["hotel_count_weight"]),
+        step=0.01,
         help="Coefficient for global hotel count normalization (0-1)"
     )
 
-    country_hotel_count_weight = st.text_input(
+    country_hotel_count_weight = st.slider(
         f"Country Hotel Normalization:",
-        value=str(current_factor_weights[dest_type]["country_hotel_count_weight"]),
+        min_value=0.0,
+        max_value=1.0,
+        value=float(current_factor_weights[dest_type]["country_hotel_count_weight"]),
+        step=0.01,
         help="Coefficient for country-relative hotel count normalization (0-1)"
     )
 
-    expenditure_score_weight = st.text_input(
+    expenditure_score_weight = st.slider(
         f"Expenditure Score Coefficient:",
-        value=str(current_factor_weights[dest_type]["expenditure_score_weight"]),
+        min_value=0.0,
+        max_value=1.0,
+        value=float(current_factor_weights[dest_type]["expenditure_score_weight"]),
+        step=0.01,
         help="Coefficient for outbound tourism expenditure score (0-1)"
     )
 
-    departure_score_weight = st.text_input(
+    departure_score_weight = st.slider(
         f"Departure Score Coefficient:",
-        value=str(current_factor_weights[dest_type]["departure_score_weight"]),
+        min_value=0.0,
+        max_value=1.0,
+        value=float(current_factor_weights[dest_type]["departure_score_weight"]),
+        step=0.01,
         help="Coefficient for outbound tourism departure score (0-1)"
     )
 
@@ -117,32 +129,17 @@ def render_location_factor_form(dest_type, current_factor_weights):
     )
 
     if submit_weights:
-        try:
-            # Convert string inputs to float
-            hotel_count_weight_float = float(hotel_count_weight)
-            country_hotel_count_weight_float = float(country_hotel_count_weight)
-            expenditure_score_weight_float = float(expenditure_score_weight)
-            departure_score_weight_float = float(departure_score_weight)
-
-            # Validate weights (should be between 0 and 1)
-            if all(0 <= w <= 1 for w in [hotel_count_weight_float, country_hotel_count_weight_float,
-                                       expenditure_score_weight_float, departure_score_weight_float]):
-                
-                # Update in-memory weights - NO DATABASE CALL
-                current_factor_weights[dest_type].update({
-                    "hotel_count_weight": hotel_count_weight_float,
-                    "country_hotel_count_weight": country_hotel_count_weight_float,
-                    "expenditure_score_weight": expenditure_score_weight_float,
-                    "departure_score_weight": departure_score_weight_float
-                })
-                
-                st.sidebar.success(f"{dest_type.replace('_', ' ').title()} coefficients updated successfully!")
-                return True
-            else:
-                st.sidebar.error("All coefficients must be between 0 and 1.")
-                
-        except ValueError:
-            st.sidebar.error("Please enter valid numeric values for all coefficients.")
+        # No need for validation since sliders enforce range automatically
+        # Update in-memory weights - NO DATABASE CALL
+        current_factor_weights[dest_type].update({
+            "hotel_count_weight": hotel_count_weight,
+            "country_hotel_count_weight": country_hotel_count_weight,
+            "expenditure_score_weight": expenditure_score_weight,
+            "departure_score_weight": departure_score_weight
+        })
+        
+        st.sidebar.success(f"{dest_type.replace('_', ' ').title()} coefficients updated successfully!")
+        return True
     
     return False
 
@@ -151,39 +148,57 @@ def render_hotel_factor_form(dest_type, current_factor_weights):
     """Render factor weight form for hotels (6 factors)"""
     
     # Hotel-specific weights (6 factors: includes agoda/google)
-    hotel_count_weight = st.text_input(
+    hotel_count_weight = st.slider(
         f"Global Hotel Normalization:",
-        value=str(current_factor_weights[dest_type]["hotel_count_weight"]),
+        min_value=0.0,
+        max_value=1.0,
+        value=float(current_factor_weights[dest_type]["hotel_count_weight"]),
+        step=0.01,
         help="Inherits the global hotel count normalization from the hotel's city"
     )
 
-    country_hotel_count_weight = st.text_input(
+    country_hotel_count_weight = st.slider(
         f"Country Hotel Normalization:",
-        value=str(current_factor_weights[dest_type]["country_hotel_count_weight"]),
+        min_value=0.0,
+        max_value=1.0,
+        value=float(current_factor_weights[dest_type]["country_hotel_count_weight"]),
+        step=0.01,
         help="Inherits the country hotel count normalization from the hotel's city"
     )
 
-    agoda_score_weight = st.text_input(
+    agoda_score_weight = st.slider(
         f"Agoda Score Coefficient:",
-        value=str(current_factor_weights[dest_type]["agoda_score_weight"]),
+        min_value=0.0,
+        max_value=1.0,
+        value=float(current_factor_weights[dest_type]["agoda_score_weight"]),
+        step=0.01,
         help="Hotel's individual Agoda review score coefficient (0-1)"
     )
 
-    google_score_weight = st.text_input(
+    google_score_weight = st.slider(
         f"Google Score Coefficient:",
-        value=str(current_factor_weights[dest_type]["google_score_weight"]),
+        min_value=0.0,
+        max_value=1.0,
+        value=float(current_factor_weights[dest_type]["google_score_weight"]),
+        step=0.01,
         help="Hotel's individual Google review score coefficient (0-1)"
     )
 
-    expenditure_score_weight = st.text_input(
+    expenditure_score_weight = st.slider(
         f"Expenditure Score Coefficient:",
-        value=str(current_factor_weights[dest_type]["expenditure_score_weight"]),
+        min_value=0.0,
+        max_value=1.0,
+        value=float(current_factor_weights[dest_type]["expenditure_score_weight"]),
+        step=0.01,
         help="Inherits the outbound tourism expenditure score from the hotel's country"
     )
 
-    departure_score_weight = st.text_input(
+    departure_score_weight = st.slider(
         f"Departure Score Coefficient:",
-        value=str(current_factor_weights[dest_type]["departure_score_weight"]),
+        min_value=0.0,
+        max_value=1.0,
+        value=float(current_factor_weights[dest_type]["departure_score_weight"]),
+        step=0.01,
         help="Inherits the outbound tourism departure score from the hotel's country"
     )
 
@@ -192,37 +207,19 @@ def render_hotel_factor_form(dest_type, current_factor_weights):
     )
 
     if submit_weights:
-        try:
-            # Convert string inputs to float
-            hotel_count_weight_float = float(hotel_count_weight)
-            country_hotel_count_weight_float = float(country_hotel_count_weight)
-            agoda_score_weight_float = float(agoda_score_weight)
-            google_score_weight_float = float(google_score_weight)
-            expenditure_score_weight_float = float(expenditure_score_weight)
-            departure_score_weight_float = float(departure_score_weight)
-
-            # Validate weights (should be between 0 and 1)
-            if all(0 <= w <= 1 for w in [hotel_count_weight_float, country_hotel_count_weight_float, 
-                                       agoda_score_weight_float, google_score_weight_float,
-                                       expenditure_score_weight_float, departure_score_weight_float]):
-                
-                # Update in-memory weights - NO DATABASE CALL
-                current_factor_weights[dest_type].update({
-                    "hotel_count_weight": hotel_count_weight_float,
-                    "country_hotel_count_weight": country_hotel_count_weight_float,
-                    "agoda_score_weight": agoda_score_weight_float,
-                    "google_score_weight": google_score_weight_float,
-                    "expenditure_score_weight": expenditure_score_weight_float,
-                    "departure_score_weight": departure_score_weight_float
-                })
-                
-                st.sidebar.success(f"{dest_type.replace('_', ' ').title()} coefficients updated successfully!")
-                return True
-            else:
-                st.sidebar.error("All coefficients must be between 0 and 1.")
-                
-        except ValueError:
-            st.sidebar.error("Please enter valid numeric values for all coefficients.")
+        # No need for validation since sliders enforce range automatically
+        # Update in-memory weights - NO DATABASE CALL
+        current_factor_weights[dest_type].update({
+            "hotel_count_weight": hotel_count_weight,
+            "country_hotel_count_weight": country_hotel_count_weight,
+            "agoda_score_weight": agoda_score_weight,
+            "google_score_weight": google_score_weight,
+            "expenditure_score_weight": expenditure_score_weight,
+            "departure_score_weight": departure_score_weight
+        })
+        
+        st.sidebar.success(f"{dest_type.replace('_', ' ').title()} coefficients updated successfully!")
+        return True
     
     return False
 
