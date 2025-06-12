@@ -8,4 +8,5 @@ command.sh
 
 /__pycache__
 
-test.csv
+search_log.json
+last_weights.json
