@@ -517,6 +517,8 @@ def init_database():
 def base_log_score(current, max):
     if not isinstance(current, int) or current == 0:
         return 0
+    elif current == 1:
+        return int((math.log(2) / 2) * (100 / math.log(max)))
     else:
         return int(math.log(current) * (100 / math.log(max)))
 
