@@ -7,6 +7,8 @@ def calculate_scores_in_memory(fts_results, factor_weights):
     Updated to handle hierarchical search results (locations + conditional hotels).
     New formula: Final Score = (factor1×coeff1 + factor2×coeff2 + ... + factorN×coeffN) / N
     Where N = 4 for cities/areas/small_cities/small_areas, N = 6 for hotels
+    
+    UPDATED: Small area classification now based on parent city size, not area size.
     """
     if not fts_results:
         return []
@@ -19,10 +21,11 @@ def calculate_scores_in_memory(fts_results, factor_weights):
     for result in fts_results:
         dest_type = result['type']
         
-        # Dynamic classification using the same threshold for both cities and areas
+        # Dynamic classification using threshold
+        # UPDATED: Area classification now uses parent city hotel count
         if dest_type == 'city' and result['hotel_count'] <= small_city_threshold:
             dest_type = 'small_city'
-        elif dest_type == 'area' and result['hotel_count'] <= small_city_threshold:
+        elif dest_type == 'area' and result['parent_city_hotel_count'] <= small_city_threshold:
             dest_type = 'small_area'
         
         if dest_type == 'hotel':

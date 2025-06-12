@@ -15,11 +15,11 @@ def render_sidebar(current_factor_weights):
     st.sidebar.subheader("🏘️ Small City/Area Threshold")
     st.sidebar.markdown(
         """
-        *Set the hotel count threshold that determines classification for both cities and areas:*
+        *Set the hotel count threshold that determines classification:*
         - Cities with **≤ threshold hotels** = Small City
         - Cities with **> threshold hotels** = Regular City
-        - Areas with **≤ threshold hotels** = Small Area
-        - Areas with **> threshold hotels** = Regular Area
+        - Areas in **small cities** = Small Area (regardless of area size)
+        - Areas in **regular cities** = Regular Area (regardless of area size)
         """
     )
 
@@ -28,7 +28,7 @@ def render_sidebar(current_factor_weights):
         threshold_input = st.text_input(
             "Hotel Count Threshold:", 
             value=str(current_threshold),
-            help="Cities and areas with this many hotels or fewer will be classified as 'small'"
+            help="Cities with this many hotels or fewer will be classified as 'small'. Areas inherit this classification from their parent city."
         )
         
         submit_threshold = st.form_submit_button("Update Threshold")
@@ -312,7 +312,10 @@ def render_search_results(fts_results, current_factor_weights):
         current_threshold = load_small_city_threshold()
         st.subheader("🏘️ Small City/Area Threshold")
         st.markdown(f"**Current Threshold:** {current_threshold} hotels")
-        st.markdown("Cities and areas with this many hotels or fewer are classified as 'small'")
+        st.markdown("**Classification Rules:**")
+        st.markdown("- Cities with ≤ threshold hotels = Small City")
+        st.markdown("- Areas in small cities = Small Area (regardless of area size)")
+        st.markdown("- Areas in regular cities = Regular Area (regardless of area size)")
         
         st.divider()
         
@@ -370,7 +373,9 @@ def render_search_results(fts_results, current_factor_weights):
         - **Low coefficients**: Destination type scores lower
         - **Example**: Set hotel coefficients to 0.01 to suppress hotels, city coefficients to 1.0 to boost cities
         
-        **Dynamic Classification:** Cities and areas are automatically classified as "Small" if their hotel count ≤ threshold.
+        **Dynamic Classification:** 
+        - Cities are classified as "Small" if their hotel count ≤ threshold
+        - Areas inherit classification from parent city (not their own size)
         
         *Coefficient values directly control competitive balance between all 5 destination types!*
         """)

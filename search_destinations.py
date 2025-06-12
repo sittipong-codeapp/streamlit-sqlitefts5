@@ -30,6 +30,7 @@ def search_locations_only(query):
     """
     Search cities and areas only (no hotels).
     Returns properly structured normalized data with 4 factors.
+    UPDATED: Areas now include parent city hotel count for classification.
     """
     conn = get_connection()
     cursor = conn.cursor()
@@ -54,7 +55,8 @@ def search_locations_only(query):
             COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
             COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
             COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
-            co.total_hotels as country_total_hotels
+            co.total_hotels as country_total_hotels,
+            ci.total_hotels as parent_city_hotel_count
         FROM city ci
         JOIN city_fts fts ON ci.id = fts.rowid
         LEFT JOIN country co ON ci.country_id = co.id
@@ -80,7 +82,8 @@ def search_locations_only(query):
             COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
             COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
             COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
-            co.total_hotels as country_total_hotels
+            co.total_hotels as country_total_hotels,
+            ci.total_hotels as parent_city_hotel_count
         FROM area ar
         JOIN area_fts fts ON ar.id = fts.rowid
         LEFT JOIN city ci ON ar.city_id = ci.id
@@ -107,7 +110,8 @@ def search_locations_only(query):
             COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
             COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
             COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
-            co.total_hotels as country_total_hotels
+            co.total_hotels as country_total_hotels,
+            ci.total_hotels as parent_city_hotel_count
         FROM city ci
         LEFT JOIN country co ON ci.country_id = co.id
         JOIN country_fts country_fts ON co.id = country_fts.rowid
@@ -133,7 +137,8 @@ def search_locations_only(query):
             COALESCE(s.country_hotel_count_normalized, 0) as country_hotel_count_normalized,
             COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
             COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
-            co.total_hotels as country_total_hotels
+            co.total_hotels as country_total_hotels,
+            ci.total_hotels as parent_city_hotel_count
         FROM area ar
         LEFT JOIN city ci ON ar.city_id = ci.id
         JOIN city_fts city_fts ON ci.id = city_fts.rowid
@@ -150,12 +155,13 @@ def search_locations_only(query):
     processed_results = []
     
     # Define column mapping for location results (cities/areas - 4 factors)
+    # UPDATED: Added parent_city_hotel_count column
     location_columns = [
         'type', 'name', 'country_name', 'city_name', 'area_name', 'hotel_count',
         'city_id', 'country_id', 'area_id', 'hotel_id',
         'hotel_count_normalized', 'country_hotel_count_normalized',
         'expenditure_score_normalized', 'departure_score_normalized',
-        'country_total_hotels'
+        'country_total_hotels', 'parent_city_hotel_count'
     ]
     
     # Process location results (cities/areas - 4 factors, no agoda/google keys)
@@ -170,12 +176,14 @@ def search_hotels_only(query, limit=20):
     """
     Search hotels only with limit parameter.
     Returns properly structured normalized data with 6 factors.
+    UPDATED: Hotels now include parent city hotel count for areas.
     """
     conn = get_connection()
     cursor = conn.cursor()
     match_pattern = f"{query}*"
 
     # Execute hotel query only with LIMIT
+    # UPDATED: Added parent city hotel count for hotels in areas
     cursor.execute('''
         -- direct_hotel: Get hotels matching query with limit
         SELECT DISTINCT
@@ -196,7 +204,8 @@ def search_hotels_only(query, limit=20):
             COALESCE(s.google_score_normalized, 0) as google_score_normalized,
             COALESCE(s.expenditure_score_normalized, 0) as expenditure_score_normalized,
             COALESCE(s.departure_score_normalized, 0) as departure_score_normalized,
-            co.total_hotels as country_total_hotels
+            co.total_hotels as country_total_hotels,
+            ci.total_hotels as parent_city_hotel_count
         FROM hotel h
         JOIN hotel_fts fts ON h.id = fts.rowid
         LEFT JOIN city ci ON h.city_id = ci.id
@@ -215,13 +224,14 @@ def search_hotels_only(query, limit=20):
     processed_results = []
     
     # Define column mapping for hotel results (hotels - 6 factors)
+    # UPDATED: Added parent_city_hotel_count column
     hotel_columns = [
         'type', 'name', 'country_name', 'city_name', 'area_name', 'hotel_count',
         'city_id', 'country_id', 'area_id', 'hotel_id',
         'hotel_count_normalized', 'country_hotel_count_normalized',
         'agoda_score_normalized', 'google_score_normalized',
         'expenditure_score_normalized', 'departure_score_normalized',
-        'country_total_hotels'
+        'country_total_hotels', 'parent_city_hotel_count'
     ]
     
     # Process hotel results (hotels - 6 factors including agoda/google)
