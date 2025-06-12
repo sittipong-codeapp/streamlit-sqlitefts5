@@ -54,12 +54,23 @@ def render_sidebar(current_factor_weights):
     st.sidebar.subheader("⚙️ Factor Weight Configuration")
     st.sidebar.markdown(
         """
-        *Configure the coefficients for the scoring formula:*
+        *ปรับ slider เพื่อให้น้ำหนักปัจจัยต่างๆ*
         
         **Scoring Formula:** `Σ(factorᵢ × coeffᵢ) / N`
         
-        - **Cities, Small Cities, Areas & Small Areas**: 4 factors (divide by 4)
-        - **Hotels**: 6 factors (divide by 6)
+        - **Cities, Areas**: 4 factors
+            -   จำนวนโรงแรมเทียบกับทั้งโลก (Hotel Count / World)
+            -   จำนวนโรงแรมเทียบในประเทศ (Hotel Count / Country)
+            -   ค่าใช้จ่าย (Expenditure)
+            -   คนเดินทางขาออก (Departure)
+        - **Hotels**: 6 factors 
+            -   คะแนนของเมือง (City Score)
+            -   คะแนนของพื้นที่ (Area Score)
+            -   คะแนน ranking จาก Agoda (Agoda Score)
+            -   คะแนน ranking จาก Google Trends (Google Score)     
+            -   ค่าใช้จ่าย (Expenditure)
+            -   คนเดินทางขาออก (Departure)
+
         
         *Use coefficient values to control destination type priority:*
         - **High coefficients (≈1.0)**: Destination type will rank higher
