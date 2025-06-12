@@ -1,6 +1,7 @@
 import streamlit as st
 import sqlite3
 from csv_loader import load_csv_data, get_sample_data
+import math
 
 
 # Function to connect to the database
@@ -495,6 +496,12 @@ def init_database():
     conn.commit()
     conn.close()
 
+# NOTE: base_log_score(total_hotel, max_total_hotel)
+def base_log_score(current, max):
+    if not isinstance(current, int) or current == 0:
+        return 0
+    else:
+        return int(math.log(current) * (100 / math.log(max)))
 
 def _calculate_and_store_normalized_scores(cursor, countries_data, cities_data, areas_data, hotels_data):
     """Calculate and store only normalized scores (0-100 scale) - no total scores"""
@@ -533,8 +540,8 @@ def _calculate_and_store_normalized_scores(cursor, countries_data, cities_data, 
                 agoda_score, google_score = 0, 0
             
             # Normalize hotel review scores (0-100 scale)
-            agoda_normalized = int((agoda_score / max_agoda_score) * 100) if agoda_score else 0
-            google_normalized = int((google_score / max_google_score) * 100) if google_score else 0
+            agoda_normalized = int(agoda_score) if agoda_score else 0
+            google_normalized = int(google_score) if google_score else 0
             
             # Get the city's hotel normalization scores (inherit from parent city)
             city_info = cities_data.get(city_id)
@@ -542,7 +549,7 @@ def _calculate_and_store_normalized_scores(cursor, countries_data, cities_data, 
                 city_hotel_count = city_info['total_hotels']
                 
                 # Calculate city's global hotel normalization
-                city_hotel_count_normalized = int((city_hotel_count / max_city_hotels) * 100)
+                city_hotel_count_normalized = base_log_score(city_hotel_count, max_city_hotels)
                 
                 # Calculate city's country hotel normalization
                 cursor.execute('SELECT MAX(total_hotels) FROM city WHERE country_id = ?', (country_id,))
@@ -550,7 +557,7 @@ def _calculate_and_store_normalized_scores(cursor, countries_data, cities_data, 
                 max_country_hotels = max_country_result[0] if max_country_result and max_country_result[0] else 1
                 
                 city_country_hotel_count_normalized = (
-                    int((city_hotel_count / max_country_hotels) * 100)
+                    base_log_score(city_hotel_count, max_country_hotels)
                     if max_country_hotels > 200
                     else 0
                 )
@@ -587,7 +594,7 @@ def _calculate_and_store_normalized_scores(cursor, countries_data, cities_data, 
                 cursor.execute('SELECT total_hotels FROM city WHERE id = ?', (city_id,))
                 result = cursor.fetchone()
                 hotel_count = result[0] if result else 0
-                hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
+                hotel_count_normalized = base_log_score(hotel_count, max_city_hotels)
 
                 cursor.execute(
                     'SELECT MAX(total_hotels) FROM city WHERE country_id = ?',
@@ -596,7 +603,7 @@ def _calculate_and_store_normalized_scores(cursor, countries_data, cities_data, 
                 result = cursor.fetchone()
                 max_country_city_hotels = result[0] if result and result[0] else 1
                 country_hotel_count_normalized = (
-                    int((hotel_count / max_country_city_hotels) * 100)
+                    base_log_score(hotel_count, max_country_city_hotels)
                     if max_country_city_hotels > 200
                     else 0
                 )
@@ -604,7 +611,7 @@ def _calculate_and_store_normalized_scores(cursor, countries_data, cities_data, 
                 cursor.execute('SELECT COUNT(*) FROM hotel WHERE area_id = ?', (area_id,))
                 result = cursor.fetchone()
                 hotel_count = result[0] if result else 0
-                hotel_count_normalized = int((hotel_count / max_city_hotels) * 100)
+                hotel_count_normalized = base_log_score(hotel_count, max_city_hotels)
 
                 cursor.execute(
                     'SELECT MAX(total_hotels) FROM city WHERE country_id = ?',
@@ -613,7 +620,7 @@ def _calculate_and_store_normalized_scores(cursor, countries_data, cities_data, 
                 result = cursor.fetchone()
                 max_country_city_hotels = result[0] if result and result[0] else 1
                 country_hotel_count_normalized = (
-                    int((hotel_count / max_country_city_hotels) * 100)
+                    base_log_score(hotel_count, max_country_city_hotels)
                     if max_country_city_hotels > 200
                     else 0
                 )
