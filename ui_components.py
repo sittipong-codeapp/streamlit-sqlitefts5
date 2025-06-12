@@ -76,7 +76,7 @@ def render_location_factor_form(dest_type, current_factor_weights):
     
     # Location weights (4 factors: no agoda/google inputs)
     hotel_count_weight = st.slider(
-        f"Gจำนวนโรงแรมเทียบกับทั้งโลก (Hotel Count / World)",
+        f"จำนวนโรงแรมเทียบกับทั้งโลก (Hotel Count / World)",
         min_value=0.0,
         max_value=1.0,
         value=float(current_factor_weights[dest_type]["hotel_count_weight"]),
