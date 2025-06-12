@@ -100,18 +100,14 @@ def calculate_location_score_on_demand(city_id, area_id, factor_weights, small_c
 
 def calculate_scores_in_memory(fts_results, factor_weights):
     """
-    Calculate final scores for search results in memory using new coefficient-based scoring system.
-    Updated to handle hierarchical search results (locations + conditional hotels).
-    UPDATED: Hotels now use calculated city/area scores instead of inherited hotel count factors.
-    New formula: Final Score = (factor1×coeff1 + factor2×coeff2 + ... + factorN×coeffN) / N
-    Where N = 4 for cities/areas/small_cities/small_areas, N = 6 for hotels
-    
-    UPDATED: Small area classification now based on parent city size, not area size.
+    SIMPLIFIED: Calculate final scores for search results that come pre-scored.
+    This function is now mainly for backward compatibility and UI formatting.
+    The heavy lifting of scoring is done earlier in the search process.
     """
     if not fts_results:
         return []
     
-    # Load small city threshold
+    # Load small city threshold for any remaining classification needed
     small_city_threshold = load_small_city_threshold()
     
     scored_results = []
@@ -119,144 +115,155 @@ def calculate_scores_in_memory(fts_results, factor_weights):
     for result in fts_results:
         dest_type = result['type']
         
-        # Dynamic classification using threshold
-        # UPDATED: Area classification now uses parent city hotel count
-        if dest_type == 'city' and result['hotel_count'] <= small_city_threshold:
+        # Use pre-calculated final_score if available, otherwise calculate
+        if 'final_score' in result:
+            final_score = result['final_score']
+        else:
+            # Fallback: calculate score if not pre-calculated
+            final_score = calculate_fallback_score(result, factor_weights, small_city_threshold)
+        
+        # Dynamic classification for UI display
+        if dest_type == 'city' and result.get('hotel_count', 0) <= small_city_threshold:
             dest_type = 'small_city'
-        elif dest_type == 'area' and result['parent_city_hotel_count'] <= small_city_threshold:
+        elif dest_type == 'area' and result.get('parent_city_hotel_count', 0) <= small_city_threshold:
             dest_type = 'small_area'
         
+        # Prepare weights for UI display (6-position array format)
         if dest_type == 'hotel':
-            # UPDATED: Hotels now use calculated city/area scores
-            
-            # Calculate city and area scores on-demand
-            city_score, area_score = calculate_location_score_on_demand(
-                result['city_id'], 
-                result['area_id'], 
-                factor_weights, 
-                small_city_threshold
-            )
-            
-            # Hotels use 6 factors with calculated city/area scores
-            factors = [
-                city_score,  # NEW: Calculated city score
-                area_score,  # NEW: Calculated area score
-                result['agoda_score_normalized'],
-                result['google_score_normalized'],
-                result['expenditure_score_normalized'],
-                result['departure_score_normalized']
-            ]
-            
             hotel_weights = factor_weights['hotel']
-            factor_weight_list = [
-                hotel_weights['city_score_weight'],  # UPDATED: New weight name
-                hotel_weights['area_score_weight'],  # UPDATED: New weight name
+            padded_weights = [
+                hotel_weights['city_score_weight'],
+                hotel_weights['area_score_weight'],
                 hotel_weights['agoda_score_weight'],
                 hotel_weights['google_score_weight'],
                 hotel_weights['expenditure_score_weight'],
                 hotel_weights['departure_score_weight']
             ]
-            
-            # Add calculated scores to result for UI display
-            result['city_score'] = city_score
-            result['area_score'] = area_score
-            
         else:
-            # Cities, small cities, areas, and small areas use 4 factors - direct array
-            factors = [
-                result['hotel_count_normalized'],
-                result['country_hotel_count_normalized'],
-                result['expenditure_score_normalized'],
-                result['departure_score_normalized']
-            ]
-            
-            location_weights = factor_weights[dest_type]  # 'city', 'small_city', 'area', or 'small_area'
-            factor_weight_list = [
+            # Location types - map 4 weights to 6-position array
+            location_weights = factor_weights[dest_type]
+            padded_weights = [
                 location_weights['hotel_count_weight'],
                 location_weights['country_hotel_count_weight'],
+                0,  # agoda_score_weight (not applicable)
+                0,  # google_score_weight (not applicable)
                 location_weights['expenditure_score_weight'],
                 location_weights['departure_score_weight']
             ]
         
-        # Calculate final score using new coefficient-based formula
-        # Sum of (factor × coefficient) divided by factor count
-        weighted_sum = sum(factor * coeff for factor, coeff in zip(factors, factor_weight_list))
-        final_score = weighted_sum / len(factors)
-        
         # Create result tuple in the format expected by UI
-        # FIXED: Properly map location weights to the 6-position array for UI display
-        if len(factor_weight_list) == 4:  # Location types
-            # Map 4 location weights to 6-position array: [hotel, country, agoda, google, expenditure, departure]
-            padded_weights = [
-                factor_weight_list[0],  # hotel_count_weight
-                factor_weight_list[1],  # country_hotel_count_weight  
-                0,                      # agoda_score_weight (not applicable for locations)
-                0,                      # google_score_weight (not applicable for locations)
-                factor_weight_list[2],  # expenditure_score_weight
-                factor_weight_list[3]   # departure_score_weight
-            ]
-        else:  # Hotel types (already 6 weights)
-            padded_weights = factor_weight_list
-        
         scored_result = (
-            dest_type,  # This will now be 'small_city' or 'small_area' for small destinations
+            dest_type,
             result['name'],
             result['country_name'],
             result['city_name'],
-            result['area_name'],
-            result['hotel_count'],
-            result['hotel_count_normalized'],
-            result['country_hotel_count_normalized'],
-            result.get('agoda_score_normalized', 0),  # 0 for cities/areas
-            result.get('google_score_normalized', 0),  # 0 for cities/areas
-            result['expenditure_score_normalized'],
-            result['departure_score_normalized'],
-            final_score,  # This is now the simple coefficient-based score
-            padded_weights[0],  # hotel_count_weight or city_score_weight
-            padded_weights[1],  # country_hotel_count_weight or area_score_weight
-            padded_weights[2],  # agoda_score_weight (0 for cities/areas)
-            padded_weights[3],  # google_score_weight (0 for cities/areas)
-            padded_weights[4],  # expenditure_score_weight (NOW CORRECT!)
-            padded_weights[5],  # departure_score_weight (NOW CORRECT!)
-            result['country_total_hotels'],
-            final_score,  # Base score same as final score (no category multiplier)
-            0,  # Category weight removed (set to 0 for UI compatibility)
-            1   # Category multiplier removed (set to 1 for UI compatibility)
+            result.get('area_name', ''),
+            result.get('hotel_count', 0),
+            result.get('hotel_count_normalized', 0),
+            result.get('country_hotel_count_normalized', 0),
+            result.get('agoda_score_normalized', 0),
+            result.get('google_score_normalized', 0),
+            result.get('expenditure_score_normalized', 0),
+            result.get('departure_score_normalized', 0),
+            final_score,  # Final score
+            padded_weights[0],  # Weight 1
+            padded_weights[1],  # Weight 2
+            padded_weights[2],  # Weight 3 (agoda)
+            padded_weights[3],  # Weight 4 (google)
+            padded_weights[4],  # Weight 5 (expenditure)
+            padded_weights[5],  # Weight 6 (departure)
+            result.get('country_total_hotels', 0),
+            final_score,  # Base score same as final score
+            0,  # Category weight (legacy, set to 0)
+            1   # Category multiplier (legacy, set to 1)
         )
         
         scored_results.append(scored_result)
     
-    # CRITICAL: Sort by final score (descending) and limit to top 20
-    # This ensures proper ranking when locations + hotels are combined
+    # Results should already be sorted, but ensure they are
     scored_results.sort(key=lambda x: x[12], reverse=True)  # x[12] is final_score
-    return scored_results[:20]
+    return scored_results
+
+
+def calculate_fallback_score(result, factor_weights, small_city_threshold):
+    """
+    Fallback score calculation for results that don't have pre-calculated scores.
+    """
+    dest_type = result['type']
+    
+    # Dynamic classification
+    if dest_type == 'city' and result.get('hotel_count', 0) <= small_city_threshold:
+        dest_type = 'small_city'
+    elif dest_type == 'area' and result.get('parent_city_hotel_count', 0) <= small_city_threshold:
+        dest_type = 'small_area'
+    
+    if dest_type == 'hotel':
+        # Hotels: 6 factors - need to calculate city/area scores
+        city_score = result.get('city_score', 0)
+        area_score = result.get('area_score', 0)
+        
+        # If city/area scores not available, calculate them
+        if city_score == 0 and area_score == 0:
+            city_score, area_score = calculate_location_score_on_demand(
+                result['city_id'], 
+                result.get('area_id'), 
+                factor_weights, 
+                small_city_threshold
+            )
+        
+        factors = [
+            city_score,
+            area_score,
+            result.get('agoda_score_normalized', 0),
+            result.get('google_score_normalized', 0),
+            result.get('expenditure_score_normalized', 0),
+            result.get('departure_score_normalized', 0)
+        ]
+        
+        hotel_weights = factor_weights['hotel']
+        factor_weight_list = [
+            hotel_weights['city_score_weight'],
+            hotel_weights['area_score_weight'],
+            hotel_weights['agoda_score_weight'],
+            hotel_weights['google_score_weight'],
+            hotel_weights['expenditure_score_weight'],
+            hotel_weights['departure_score_weight']
+        ]
+        
+        # Calculate score: Σ(factor × coefficient) / 6
+        weighted_sum = sum(factor * coeff for factor, coeff in zip(factors, factor_weight_list))
+        final_score = weighted_sum / 6
+        
+    else:
+        # Locations: 4 factors
+        factors = [
+            result.get('hotel_count_normalized', 0),
+            result.get('country_hotel_count_normalized', 0),
+            result.get('expenditure_score_normalized', 0),
+            result.get('departure_score_normalized', 0)
+        ]
+        
+        location_weights = factor_weights[dest_type]
+        factor_weight_list = [
+            location_weights['hotel_count_weight'],
+            location_weights['country_hotel_count_weight'],
+            location_weights['expenditure_score_weight'],
+            location_weights['departure_score_weight']
+        ]
+        
+        # Calculate score: Σ(factor × coefficient) / 4
+        weighted_sum = sum(factor * coeff for factor, coeff in zip(factors, factor_weight_list))
+        final_score = weighted_sum / 4
+    
+    return final_score
 
 
 def calculate_scores_for_hierarchical_search(fts_results, factor_weights):
     """
     Alternative scoring function specifically designed for hierarchical search.
-    Provides more explicit handling of the two-phase result combination.
+    Now mainly just calls the main function since scoring happens earlier.
     """
-    if not fts_results:
-        return []
-    
-    # Separate results by type for analysis
-    location_results = [r for r in fts_results if r['type'] in ['city', 'area']]
-    hotel_results = [r for r in fts_results if r['type'] == 'hotel']
-    
-    # Calculate scores for all results using main function
-    scored_results = calculate_scores_in_memory(fts_results, factor_weights)
-    
-    # Optional: Add debug info about search composition
-    if hasattr(scored_results, '_debug_info'):
-        scored_results._debug_info = {
-            'location_count': len(location_results),
-            'hotel_count': len(hotel_results),
-            'total_count': len(fts_results),
-            'hotel_search_triggered': len(hotel_results) > 0
-        }
-    
-    return scored_results
+    return calculate_scores_in_memory(fts_results, factor_weights)
 
 
 def load_location_weights_from_database():
@@ -290,7 +297,7 @@ def load_location_weights_from_database():
 def load_hotel_weights_from_database():
     """
     Load 6-factor weights for hotels from hotel_weights table.
-    UPDATED: Use new column names (city_score_weight, area_score_weight).
+    Uses new column names (city_score_weight, area_score_weight).
     """
     conn = get_connection()
     cursor = conn.cursor()
@@ -396,7 +403,7 @@ def save_location_weights_to_database(location_weights):
 def save_hotel_weights_to_database(hotel_weights):
     """
     Save 6-factor weights to hotel_weights table.
-    UPDATED: Use new column names (city_score_weight, area_score_weight).
+    Uses new column names (city_score_weight, area_score_weight).
     """
     conn = get_connection()
     cursor = conn.cursor()
@@ -411,8 +418,8 @@ def save_hotel_weights_to_database(hotel_weights):
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (
             'hotel',
-            weight_dict['city_score_weight'],   # UPDATED: New column name
-            weight_dict['area_score_weight'],   # UPDATED: New column name
+            weight_dict['city_score_weight'],
+            weight_dict['area_score_weight'],
             weight_dict['agoda_score_weight'],
             weight_dict['google_score_weight'],
             weight_dict['expenditure_score_weight'],
@@ -479,7 +486,7 @@ def get_country_maxes_from_results(fts_results):
     # Get unique country IDs from results
     country_ids = set()
     for result in fts_results:
-        if result['country_id']:
+        if result.get('country_id'):
             country_ids.add(result['country_id'])
     
     if not country_ids:
@@ -503,3 +510,16 @@ def get_country_maxes_from_results(fts_results):
     
     conn.close()
     return country_maxes
+
+
+# Legacy function for backward compatibility
+def calculate_weighted_score(factors, weights):
+    """
+    Legacy function - now just calls simple weighted average
+    Kept for backward compatibility if needed elsewhere.
+    """
+    if not factors or not weights or len(factors) != len(weights):
+        return 0
+    
+    weighted_sum = sum(factor * weight for factor, weight in zip(factors, weights))
+    return weighted_sum / len(factors)

@@ -147,10 +147,10 @@ def render_location_factor_form(dest_type, current_factor_weights):
 def render_hotel_factor_form(dest_type, current_factor_weights):
     """
     Render factor weight form for hotels (6 factors).
-    UPDATED: Changed hotel_count_weight -> city_score_weight, country_hotel_count_weight -> area_score_weight.
+    Uses new weight names: city_score_weight and area_score_weight.
     """
     
-    # Hotel-specific weights (6 factors: UPDATED labels and variable names)
+    # Hotel-specific weights (6 factors: Updated labels and variable names)
     city_score_weight = st.slider(
         f"City Score Coefficient:",
         min_value=0.0,
@@ -212,7 +212,7 @@ def render_hotel_factor_form(dest_type, current_factor_weights):
     if submit_weights:
         # No need for validation since sliders enforce range automatically
         # Update in-memory weights - NO DATABASE CALL
-        # UPDATED: Use new weight names
+        # Use new weight names
         current_factor_weights[dest_type].update({
             "city_score_weight": city_score_weight,
             "area_score_weight": area_score_weight,
@@ -230,16 +230,21 @@ def render_hotel_factor_form(dest_type, current_factor_weights):
 
 def render_search_results(fts_results, current_factor_weights):
     """
-    Render search results with in-memory score calculation using coefficient-based scoring system.
-    Takes raw FTS results and current weights, calculates scores in Python.
-    UPDATED: Hotel calculation display now shows city/area scores instead of inherited hotel counts.
+    SIMPLIFIED: Render search results that come pre-scored from the enhanced search logic.
+    No longer needs to calculate scores since they come with final_score already computed.
+    Now mainly focuses on formatting and displaying the pre-calculated results.
     """
     if not fts_results:
         st.write("No matching destinations found.")
         return
 
-    # Calculate scores in memory using current factor weights (coefficient-based scoring system)
-    scored_results = calculate_scores_in_memory(fts_results, current_factor_weights)
+    # Check if results are already in tuple format (legacy) or dict format (new)
+    if fts_results and isinstance(fts_results[0], dict):
+        # New format: results come as dictionaries with pre-calculated scores
+        scored_results = convert_dict_results_to_tuple_format(fts_results, current_factor_weights)
+    else:
+        # Legacy format: results are already tuples, use as-is
+        scored_results = fts_results
     
     if not scored_results:
         st.write("No matching destinations found.")
@@ -261,7 +266,7 @@ def render_search_results(fts_results, current_factor_weights):
             "Normalized: Google Score",
             "Normalized: Expenditure Score",
             "Normalized: Departure Score",
-            "Final Score",  # This is now the simple coefficient-based score
+            "Final Score",  # This is the pre-calculated score from search
             "Coefficient: Factor 1",      # hotel_count_weight OR city_score_weight
             "Coefficient: Factor 2",      # country_hotel_count_weight OR area_score_weight
             "Coefficient: Agoda Score",
@@ -269,7 +274,7 @@ def render_search_results(fts_results, current_factor_weights):
             "Coefficient: Expenditure Score",
             "Coefficient: Departure Score",
             "Country Total Hotels",
-            "Base Score",           # Same as final score now
+            "Base Score",           # Same as final score
             "Category Weight",      # Set to 0 (legacy compatibility)
             "Category Multiplier"   # Set to 1 (legacy compatibility)
         ],
@@ -295,6 +300,7 @@ def render_search_results(fts_results, current_factor_weights):
     )
 
     # Add Calculation column - show detailed scoring breakdown
+    # WARNING: DO NOT CHANGE THE CALCULATION FORMAT! Must remain: coeff(factor) + coeff(factor) => sum / count => result
     def create_calculation_string(row):
         dest_type = row["Type"]
         
@@ -337,7 +343,7 @@ def render_search_results(fts_results, current_factor_weights):
 
     st.write(f"Found {len(scored_results)} matching destinations:")
 
-    # Show results with new columns
+    # Show results with enhanced calculation display
     display_df = df[
         [
             "Display Name",
@@ -360,3 +366,86 @@ def render_search_results(fts_results, current_factor_weights):
             "Calculation": st.column_config.TextColumn(width="large"),
         },
     )
+
+
+def convert_dict_results_to_tuple_format(dict_results, current_factor_weights):
+    """
+    Convert new dictionary format results to the legacy tuple format expected by the UI.
+    This ensures compatibility with existing display code.
+    """
+    # Load threshold for classification
+    small_city_threshold = load_small_city_threshold()
+    
+    converted_results = []
+    
+    for result in dict_results:
+        dest_type = result['type']
+        
+        # Dynamic classification for display
+        if dest_type == 'city' and result.get('hotel_count', 0) <= small_city_threshold:
+            dest_type = 'small_city'
+        elif dest_type == 'area' and result.get('parent_city_hotel_count', 0) <= small_city_threshold:
+            dest_type = 'small_area'
+        
+        # Get final score (should be pre-calculated)
+        final_score = result.get('final_score', 0)
+        
+        # Prepare weights for UI display (6-position array format)
+        if dest_type == 'hotel':
+            hotel_weights = current_factor_weights['hotel']
+            padded_weights = [
+                hotel_weights['city_score_weight'],
+                hotel_weights['area_score_weight'],
+                hotel_weights['agoda_score_weight'],
+                hotel_weights['google_score_weight'],
+                hotel_weights['expenditure_score_weight'],
+                hotel_weights['departure_score_weight']
+            ]
+            # For hotels, show calculated city/area scores in the normalized fields
+            hotel_count_norm = result.get('city_score', 0)  # Show city score
+            country_hotel_norm = result.get('area_score', 0)  # Show area score
+        else:
+            # Location types - map 4 weights to 6-position array
+            location_weights = current_factor_weights[dest_type]
+            padded_weights = [
+                location_weights['hotel_count_weight'],
+                location_weights['country_hotel_count_weight'],
+                0,  # agoda_score_weight (not applicable)
+                0,  # google_score_weight (not applicable)
+                location_weights['expenditure_score_weight'],
+                location_weights['departure_score_weight']
+            ]
+            # For locations, show actual normalized values
+            hotel_count_norm = result.get('hotel_count_normalized', 0)
+            country_hotel_norm = result.get('country_hotel_count_normalized', 0)
+        
+        # Create result tuple in the format expected by UI
+        tuple_result = (
+            dest_type,
+            result['name'],
+            result['country_name'],
+            result['city_name'],
+            result.get('area_name', ''),
+            result.get('hotel_count', 0),
+            hotel_count_norm,  # This will show city_score for hotels, hotel_count_normalized for locations
+            country_hotel_norm,  # This will show area_score for hotels, country_hotel_count_normalized for locations
+            result.get('agoda_score_normalized', 0),
+            result.get('google_score_normalized', 0),
+            result.get('expenditure_score_normalized', 0),
+            result.get('departure_score_normalized', 0),
+            final_score,  # Pre-calculated final score
+            padded_weights[0],  # Weight 1
+            padded_weights[1],  # Weight 2
+            padded_weights[2],  # Weight 3 (agoda)
+            padded_weights[3],  # Weight 4 (google)
+            padded_weights[4],  # Weight 5 (expenditure)
+            padded_weights[5],  # Weight 6 (departure)
+            result.get('country_total_hotels', 0),
+            final_score,  # Base score same as final score
+            0,  # Category weight (legacy, set to 0)
+            1   # Category multiplier (legacy, set to 1)
+        )
+        
+        converted_results.append(tuple_result)
+    
+    return converted_results

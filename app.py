@@ -21,7 +21,7 @@ if 'app_config' not in st.session_state:
         'weights_changed': False,
         'threshold_changed': False,
         'last_query': '',
-        'last_fts_results': None
+        'last_search_results': None  # Changed from last_fts_results to last_search_results
     }
 
 
@@ -83,26 +83,30 @@ def save_weights_periodically():
 
 
 def handle_search(query):
-    """Handle search with caching and auto-recalculation"""
+    """
+    SIMPLIFIED: Handle search with caching but no score recalculation.
+    The enhanced search logic now returns pre-scored results, so we just cache and display them.
+    """
     current_factor_weights = st.session_state.app_config['weights']
     
-    # Check if we need to perform a new FTS search or can reuse cached results
+    # Check if we need to perform a new search or can reuse cached results
     if (query != st.session_state.app_config['last_query'] or 
-        st.session_state.app_config['last_fts_results'] is None):
+        st.session_state.app_config['last_search_results'] is None or
+        st.session_state.app_config.get('weights_changed', False)):
         
-        # Perform new FTS search (now returns clean factor structure)
-        fts_results = search_destinations(query)
+        # Perform new search - this now returns pre-scored results
+        search_results = search_destinations(query)
         st.session_state.app_config['last_query'] = query
-        st.session_state.app_config['last_fts_results'] = fts_results
-        # Reset weights changed flags when new search is performed
+        st.session_state.app_config['last_search_results'] = search_results
+        # Reset weights changed flag after new search
         st.session_state.app_config['weights_changed'] = False
         
     else:
-        # Reuse cached FTS results
-        fts_results = st.session_state.app_config['last_fts_results']
+        # Reuse cached search results (they're already scored)
+        search_results = st.session_state.app_config['last_search_results']
     
-    # Always render with current weights (this will recalculate scores if weights changed)
-    render_search_results(fts_results, current_factor_weights)
+    # Render results - they come pre-scored from the enhanced search logic
+    render_search_results(search_results, current_factor_weights)
     
     # If weights were changed during this render, mark them as changed
     if hasattr(st.session_state, 'weights_changed') and st.session_state.weights_changed:

@@ -1,42 +1,85 @@
 from database import get_connection
+from scoring import (
+    load_weights_from_database, 
+    load_small_city_threshold,
+    calculate_location_score_on_demand
+)
 
 
 def search_destinations(query):
     """
-    Main search with hierarchical priority logic:
-    1. Search cities and areas first
-    2. Only search hotels if slots remain unfilled
-    3. Always attempt to return up to 20 results total
+    Enhanced search with proper scoring and sorting at each phase:
+    1. Search and score locations, sort, take top 20 if >= 20
+    2. If < 20, search ALL hotels, score them, sort, take needed slots
+    3. Final re-sort of combined results to allow hotels to outrank cities
     """
-    # Phase 1: Search cities and areas
-    location_results = search_locations_only(query)
+    # Phase 1: Get and score locations
+    location_results = search_and_score_locations(query)
     
-    # Phase 2: Decision point
     if len(location_results) >= 20:
-        # Enough locations found, skip hotels
-        return location_results
+        return location_results[:20]  # Top 20 locations only
     
-    # Phase 3: Search hotels to fill remaining slots
+    # Phase 2: Get ALL hotels, calculate scores, sort, take needed
     slots_needed = 20 - len(location_results)
-    hotel_results = search_hotels_only(query, limit=slots_needed)
+    hotel_results = search_and_score_hotels(query, slots_needed)
     
-    # Phase 4: Combine results
-    combined_results = location_results + hotel_results
+    # Phase 3: Combine and final sort to allow hotels to outrank cities
+    combined = location_results + hotel_results
+    combined.sort(key=lambda x: x['final_score'], reverse=True)
     
-    return combined_results
+    return combined
 
 
-def search_locations_only(query):
+def search_and_score_locations(query):
     """
-    Search cities and areas only (no hotels).
-    Returns properly structured normalized data with 4 factors.
-    UPDATED: Areas now include parent city hotel count for classification.
+    Search locations, calculate scores, and sort by score.
+    Returns locations with calculated final_score.
+    """
+    # Get raw location data using existing SQL logic
+    raw_results = get_raw_location_data(query)
+    
+    if not raw_results:
+        return []
+    
+    # Calculate scores for all locations
+    scored_results = calculate_location_scores(raw_results)
+    
+    # Sort by score descending
+    scored_results.sort(key=lambda x: x['final_score'], reverse=True)
+    
+    return scored_results
+
+
+def search_and_score_hotels(query, slots_needed):
+    """
+    Search ALL matching hotels, calculate scores including parent city/area scores,
+    sort by score, and return top N hotels where N = slots_needed.
+    """
+    # Get ALL matching hotels (no limit)
+    raw_hotel_results = get_all_matching_hotels(query)
+    
+    if not raw_hotel_results:
+        return []
+    
+    # Calculate scores for all hotels (including city/area scores)
+    scored_hotels = calculate_hotel_scores_with_parents(raw_hotel_results)
+    
+    # Sort by score descending and take only what we need
+    scored_hotels.sort(key=lambda x: x['final_score'], reverse=True)
+    
+    return scored_hotels[:slots_needed]
+
+
+def get_raw_location_data(query):
+    """
+    Get raw location data using the same SQL queries as before.
+    Returns list of dictionaries with location data and normalized scores.
     """
     conn = get_connection()
     cursor = conn.cursor()
     match_pattern = f"{query}*"
 
-    # Execute queries for cities and areas only (no hotel queries)
+    # Execute the same 4 UNION queries as before
     cursor.execute('''
         -- direct_city: Get cities matching query
         SELECT DISTINCT
@@ -154,8 +197,7 @@ def search_locations_only(query):
     # Process results into clean dictionary structures
     processed_results = []
     
-    # Define column mapping for location results (cities/areas - 4 factors)
-    # UPDATED: Added parent_city_hotel_count column
+    # Define column mapping for location results
     location_columns = [
         'type', 'name', 'country_name', 'city_name', 'area_name', 'hotel_count',
         'city_id', 'country_id', 'area_id', 'hotel_id',
@@ -164,7 +206,7 @@ def search_locations_only(query):
         'country_total_hotels', 'parent_city_hotel_count'
     ]
     
-    # Process location results (cities/areas - 4 factors, no agoda/google keys)
+    # Process location results
     for row in location_results:
         result = dict(zip(location_columns, row))
         processed_results.append(result)
@@ -172,22 +214,18 @@ def search_locations_only(query):
     return processed_results
 
 
-def search_hotels_only(query, limit=20):
+def get_all_matching_hotels(query):
     """
-    Search hotels only with limit parameter.
-    Returns properly structured normalized data with 6 factors.
-    UPDATED: Hotels now include parent city hotel count for areas.
-    UPDATED: Enhanced to include all data needed for city/area score calculation.
+    Get ALL matching hotels (no limit) with all necessary data for scoring.
+    Returns list of dictionaries with hotel data and normalized scores.
     """
     conn = get_connection()
     cursor = conn.cursor()
     match_pattern = f"{query}*"
 
-    # Execute hotel query only with LIMIT
-    # UPDATED: Added parent city hotel count for hotels in areas
-    # UPDATED: Enhanced query to include all necessary data for on-demand score calculation
+    # Execute hotel query WITHOUT LIMIT to get ALL matching hotels
     cursor.execute('''
-        -- direct_hotel: Get hotels matching query with limit
+        -- Get ALL hotels matching query (no limit)
         SELECT DISTINCT
             'hotel' as type,
             h.name, 
@@ -216,8 +254,7 @@ def search_hotels_only(query, limit=20):
         LEFT JOIN destination d ON d.id = (h.id + 20000) AND d.type = 'hotel'
         LEFT JOIN destination_score s ON d.id = s.destination_id
         WHERE fts.name MATCH ?
-        LIMIT ?
-    ''', (match_pattern, limit))
+    ''', (match_pattern,))
 
     hotel_results = cursor.fetchall()
     conn.close()
@@ -225,8 +262,7 @@ def search_hotels_only(query, limit=20):
     # Process results into clean dictionary structures
     processed_results = []
     
-    # Define column mapping for hotel results (hotels - 6 factors)
-    # UPDATED: Added parent_city_hotel_count column
+    # Define column mapping for hotel results
     hotel_columns = [
         'type', 'name', 'country_name', 'city_name', 'area_name', 'hotel_count',
         'city_id', 'country_id', 'area_id', 'hotel_id',
@@ -236,9 +272,143 @@ def search_hotels_only(query, limit=20):
         'country_total_hotels', 'parent_city_hotel_count'
     ]
     
-    # Process hotel results (hotels - 6 factors including agoda/google)
+    # Process hotel results
     for row in hotel_results:
         result = dict(zip(hotel_columns, row))
         processed_results.append(result)
     
     return processed_results
+
+
+def calculate_location_scores(raw_results):
+    """
+    Calculate scores for location results (cities/areas).
+    Returns list with final_score added to each result.
+    """
+    if not raw_results:
+        return []
+    
+    weights = load_weights_from_database()
+    threshold = load_small_city_threshold()
+    
+    scored_results = []
+    for result in raw_results:
+        score = calculate_single_location_score(result, weights, threshold)
+        result['final_score'] = score
+        scored_results.append(result)
+    
+    return scored_results
+
+
+def calculate_hotel_scores_with_parents(raw_hotels):
+    """
+    Calculate scores for hotels including parent city/area scores.
+    Returns list with final_score, city_score, and area_score added to each result.
+    """
+    if not raw_hotels:
+        return []
+    
+    weights = load_weights_from_database()
+    threshold = load_small_city_threshold()
+    
+    scored_hotels = []
+    for hotel in raw_hotels:
+        # Calculate parent scores on-demand
+        city_score, area_score = calculate_location_score_on_demand(
+            hotel['city_id'], 
+            hotel['area_id'], 
+            weights, 
+            threshold
+        )
+        
+        # Calculate final hotel score using 6 factors
+        hotel_score = calculate_single_hotel_score(hotel, city_score, area_score, weights)
+        
+        # Add calculated values to result
+        hotel['final_score'] = hotel_score
+        hotel['city_score'] = city_score
+        hotel['area_score'] = area_score
+        
+        scored_hotels.append(hotel)
+    
+    return scored_hotels
+
+
+def calculate_single_location_score(result, weights, threshold):
+    """
+    Calculate score for a single location (city/area) using coefficient-based formula.
+    """
+    dest_type = result['type']
+    
+    # Dynamic classification using threshold
+    if dest_type == 'city' and result['hotel_count'] <= threshold:
+        dest_type = 'small_city'
+    elif dest_type == 'area' and result['parent_city_hotel_count'] <= threshold:
+        dest_type = 'small_area'
+    
+    # Get appropriate weights for this destination type
+    location_weights = weights[dest_type]
+    
+    # Extract 4 factors for locations
+    factors = [
+        result['hotel_count_normalized'],
+        result['country_hotel_count_normalized'],
+        result['expenditure_score_normalized'],
+        result['departure_score_normalized']
+    ]
+    
+    factor_weight_list = [
+        location_weights['hotel_count_weight'],
+        location_weights['country_hotel_count_weight'],
+        location_weights['expenditure_score_weight'],
+        location_weights['departure_score_weight']
+    ]
+    
+    # Calculate final score: Σ(factor × coefficient) / 4
+    weighted_sum = sum(factor * coeff for factor, coeff in zip(factors, factor_weight_list))
+    final_score = weighted_sum / 4
+    
+    return final_score
+
+
+def calculate_single_hotel_score(hotel, city_score, area_score, weights):
+    """
+    Calculate score for a single hotel using 6 factors including calculated city/area scores.
+    """
+    hotel_weights = weights['hotel']
+    
+    # Extract 6 factors for hotels
+    factors = [
+        city_score,  # Calculated city score
+        area_score,  # Calculated area score  
+        hotel['agoda_score_normalized'],
+        hotel['google_score_normalized'],
+        hotel['expenditure_score_normalized'],
+        hotel['departure_score_normalized']
+    ]
+    
+    factor_weight_list = [
+        hotel_weights['city_score_weight'],
+        hotel_weights['area_score_weight'],
+        hotel_weights['agoda_score_weight'],
+        hotel_weights['google_score_weight'],
+        hotel_weights['expenditure_score_weight'],
+        hotel_weights['departure_score_weight']
+    ]
+    
+    # Calculate final score: Σ(factor × coefficient) / 6
+    weighted_sum = sum(factor * coeff for factor, coeff in zip(factors, factor_weight_list))
+    final_score = weighted_sum / 6
+    
+    return final_score
+
+
+# Legacy functions kept for compatibility (now simplified)
+def search_locations_only(query):
+    """Legacy function - now just calls the new search_and_score_locations"""
+    return search_and_score_locations(query)
+
+
+def search_hotels_only(query, limit=20):
+    """Legacy function - now calls the new search_and_score_hotels"""
+    return search_and_score_hotels(query, limit)
