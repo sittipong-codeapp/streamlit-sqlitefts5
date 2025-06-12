@@ -325,11 +325,11 @@ def render_search_results(fts_results, current_factor_weights):
             calc_parts.append(f"{coeff:.2f}({int(factor)})")
             total_sum += coeff * factor
         
-        # Format: coeff(factor) + coeff(factor) + ... = sum / count = final_score
+        # Format: coeff(factor) + coeff(factor) + ... => sum / count => final_score
         calculation_str = " + ".join(calc_parts)
         final_score = total_sum / factor_count
         
-        return f"{calculation_str} = {total_sum:.2f} / {factor_count} = {final_score:.2f}"
+        return f"{calculation_str} => {total_sum:.2f} / {factor_count} => {final_score:.2f}"
     
     df["Calculation"] = df.apply(create_calculation_string, axis=1)
 
