@@ -145,25 +145,28 @@ def render_location_factor_form(dest_type, current_factor_weights):
 
 
 def render_hotel_factor_form(dest_type, current_factor_weights):
-    """Render factor weight form for hotels (6 factors)"""
+    """
+    Render factor weight form for hotels (6 factors).
+    UPDATED: Changed hotel_count_weight -> city_score_weight, country_hotel_count_weight -> area_score_weight.
+    """
     
-    # Hotel-specific weights (6 factors: includes agoda/google)
-    hotel_count_weight = st.slider(
-        f"Global Hotel Normalization:",
+    # Hotel-specific weights (6 factors: UPDATED labels and variable names)
+    city_score_weight = st.slider(
+        f"City Score Coefficient:",
         min_value=0.0,
         max_value=1.0,
-        value=float(current_factor_weights[dest_type]["hotel_count_weight"]),
+        value=float(current_factor_weights[dest_type]["city_score_weight"]),
         step=0.01,
-        help="Inherits the global hotel count normalization from the hotel's city"
+        help="Coefficient for the hotel's parent city calculated score (0-1)"
     )
 
-    country_hotel_count_weight = st.slider(
-        f"Country Hotel Normalization:",
+    area_score_weight = st.slider(
+        f"Area Score Coefficient:",
         min_value=0.0,
         max_value=1.0,
-        value=float(current_factor_weights[dest_type]["country_hotel_count_weight"]),
+        value=float(current_factor_weights[dest_type]["area_score_weight"]),
         step=0.01,
-        help="Inherits the country hotel count normalization from the hotel's city"
+        help="Coefficient for the hotel's parent area calculated score (0-1)"
     )
 
     agoda_score_weight = st.slider(
@@ -209,9 +212,10 @@ def render_hotel_factor_form(dest_type, current_factor_weights):
     if submit_weights:
         # No need for validation since sliders enforce range automatically
         # Update in-memory weights - NO DATABASE CALL
+        # UPDATED: Use new weight names
         current_factor_weights[dest_type].update({
-            "hotel_count_weight": hotel_count_weight,
-            "country_hotel_count_weight": country_hotel_count_weight,
+            "city_score_weight": city_score_weight,
+            "area_score_weight": area_score_weight,
             "agoda_score_weight": agoda_score_weight,
             "google_score_weight": google_score_weight,
             "expenditure_score_weight": expenditure_score_weight,
@@ -228,6 +232,7 @@ def render_search_results(fts_results, current_factor_weights):
     """
     Render search results with in-memory score calculation using coefficient-based scoring system.
     Takes raw FTS results and current weights, calculates scores in Python.
+    UPDATED: Hotel calculation display now shows city/area scores instead of inherited hotel counts.
     """
     if not fts_results:
         st.write("No matching destinations found.")
@@ -257,8 +262,8 @@ def render_search_results(fts_results, current_factor_weights):
             "Normalized: Expenditure Score",
             "Normalized: Departure Score",
             "Final Score",  # This is now the simple coefficient-based score
-            "Coefficient: Hotel Count",
-            "Coefficient: Country Hotel Count",
+            "Coefficient: Factor 1",      # hotel_count_weight OR city_score_weight
+            "Coefficient: Factor 2",      # country_hotel_count_weight OR area_score_weight
             "Coefficient: Agoda Score",
             "Coefficient: Google Score",
             "Coefficient: Expenditure Score",
@@ -296,8 +301,8 @@ def render_search_results(fts_results, current_factor_weights):
         if dest_type == "hotel":
             # Hotels: 6 factors
             factors = [
-                (row["Coefficient: Hotel Count"], row["Normalized: Hotel Count"]),
-                (row["Coefficient: Country Hotel Count"], row["Normalized: Country Hotel Count"]),
+                (row["Coefficient: Factor 1"], row["Normalized: Hotel Count"]),
+                (row["Coefficient: Factor 2"], row["Normalized: Country Hotel Count"]),
                 (row["Coefficient: Agoda Score"], row["Normalized: Agoda Score"]),
                 (row["Coefficient: Google Score"], row["Normalized: Google Score"]),
                 (row["Coefficient: Expenditure Score"], row["Normalized: Expenditure Score"]),
@@ -307,8 +312,8 @@ def render_search_results(fts_results, current_factor_weights):
         else:
             # Locations: 4 factors (city, small_city, area, small_area)
             factors = [
-                (row["Coefficient: Hotel Count"], row["Normalized: Hotel Count"]),
-                (row["Coefficient: Country Hotel Count"], row["Normalized: Country Hotel Count"]),
+                (row["Coefficient: Factor 1"], row["Normalized: Hotel Count"]),
+                (row["Coefficient: Factor 2"], row["Normalized: Country Hotel Count"]),
                 (row["Coefficient: Expenditure Score"], row["Normalized: Expenditure Score"]),
                 (row["Coefficient: Departure Score"], row["Normalized: Departure Score"])
             ]

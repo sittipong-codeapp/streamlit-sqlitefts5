@@ -40,10 +40,11 @@ DEFAULT_SMALL_AREA_WEIGHTS = {
 }
 
 # Default factor weights for hotels - 6 factors
+# UPDATED: Changed hotel_count_weight -> city_score_weight, country_hotel_count_weight -> area_score_weight
 # Corresponds to HOTEL_COEFFICIENTS: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 DEFAULT_HOTEL_WEIGHTS = {
-    "hotel_count_weight": 0.0,
-    "country_hotel_count_weight": 0.0,
+    "city_score_weight": 0.0,
+    "area_score_weight": 0.0,
     "agoda_score_weight": 0.0,
     "google_score_weight": 0.0,
     "expenditure_score_weight": 0.0,
@@ -115,6 +116,7 @@ def get_default_small_area_weights():
 def get_default_hotel_weights():
     """
     Get default weights for hotels.
+    UPDATED: Now returns weights with city_score_weight and area_score_weight instead of hotel inheritance.
     
     Returns:
         dict: Default hotel weights (6 factors)

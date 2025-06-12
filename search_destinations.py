@@ -177,6 +177,7 @@ def search_hotels_only(query, limit=20):
     Search hotels only with limit parameter.
     Returns properly structured normalized data with 6 factors.
     UPDATED: Hotels now include parent city hotel count for areas.
+    UPDATED: Enhanced to include all data needed for city/area score calculation.
     """
     conn = get_connection()
     cursor = conn.cursor()
@@ -184,6 +185,7 @@ def search_hotels_only(query, limit=20):
 
     # Execute hotel query only with LIMIT
     # UPDATED: Added parent city hotel count for hotels in areas
+    # UPDATED: Enhanced query to include all necessary data for on-demand score calculation
     cursor.execute('''
         -- direct_hotel: Get hotels matching query with limit
         SELECT DISTINCT

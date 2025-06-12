@@ -1,10 +1,108 @@
 from database import get_connection
 
 
+def calculate_location_score_on_demand(city_id, area_id, factor_weights, small_city_threshold):
+    """
+    Calculate city and area scores on-demand for hotel scoring.
+    Returns tuple: (city_score, area_score)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Get city data and calculate city score
+    cursor.execute('''
+        SELECT d.type, d.country_id, d.city_id, d.area_id,
+               s.hotel_count_normalized, s.country_hotel_count_normalized,
+               s.expenditure_score_normalized, s.departure_score_normalized,
+               c.total_hotels as city_hotel_count
+        FROM destination d
+        LEFT JOIN destination_score s ON d.id = s.destination_id
+        LEFT JOIN city c ON d.city_id = c.id
+        WHERE d.city_id = ? AND d.type = 'city'
+    ''', (city_id,))
+    
+    city_result = cursor.fetchone()
+    city_score = 0
+    
+    if city_result:
+        # Determine if this is a small city
+        city_hotel_count = city_result[8] if city_result[8] else 0
+        dest_type = 'small_city' if city_hotel_count <= small_city_threshold else 'city'
+        
+        # Get appropriate weights
+        location_weights = factor_weights[dest_type]
+        
+        # Calculate city score using 4 factors
+        city_factors = [
+            city_result[4] or 0,  # hotel_count_normalized
+            city_result[5] or 0,  # country_hotel_count_normalized
+            city_result[6] or 0,  # expenditure_score_normalized
+            city_result[7] or 0   # departure_score_normalized
+        ]
+        
+        city_weight_list = [
+            location_weights['hotel_count_weight'],
+            location_weights['country_hotel_count_weight'],
+            location_weights['expenditure_score_weight'],
+            location_weights['departure_score_weight']
+        ]
+        
+        # Calculate city score: Σ(factor × coefficient) / 4
+        weighted_sum = sum(factor * coeff for factor, coeff in zip(city_factors, city_weight_list))
+        city_score = weighted_sum / 4
+    
+    # Get area data and calculate area score
+    area_score = 0
+    if area_id:
+        cursor.execute('''
+            SELECT d.type, d.country_id, d.city_id, d.area_id,
+                   s.hotel_count_normalized, s.country_hotel_count_normalized,
+                   s.expenditure_score_normalized, s.departure_score_normalized,
+                   c.total_hotels as parent_city_hotel_count
+            FROM destination d
+            LEFT JOIN destination_score s ON d.id = s.destination_id
+            LEFT JOIN city c ON d.city_id = c.id
+            WHERE d.area_id = ? AND d.type = 'area'
+        ''', (area_id,))
+        
+        area_result = cursor.fetchone()
+        
+        if area_result:
+            # Determine if this is a small area (based on parent city size)
+            parent_city_hotel_count = area_result[8] if area_result[8] else 0
+            dest_type = 'small_area' if parent_city_hotel_count <= small_city_threshold else 'area'
+            
+            # Get appropriate weights
+            location_weights = factor_weights[dest_type]
+            
+            # Calculate area score using 4 factors
+            area_factors = [
+                area_result[4] or 0,  # hotel_count_normalized
+                area_result[5] or 0,  # country_hotel_count_normalized
+                area_result[6] or 0,  # expenditure_score_normalized
+                area_result[7] or 0   # departure_score_normalized
+            ]
+            
+            area_weight_list = [
+                location_weights['hotel_count_weight'],
+                location_weights['country_hotel_count_weight'],
+                location_weights['expenditure_score_weight'],
+                location_weights['departure_score_weight']
+            ]
+            
+            # Calculate area score: Σ(factor × coefficient) / 4
+            weighted_sum = sum(factor * coeff for factor, coeff in zip(area_factors, area_weight_list))
+            area_score = weighted_sum / 4
+    
+    conn.close()
+    return city_score, area_score
+
+
 def calculate_scores_in_memory(fts_results, factor_weights):
     """
     Calculate final scores for search results in memory using new coefficient-based scoring system.
     Updated to handle hierarchical search results (locations + conditional hotels).
+    UPDATED: Hotels now use calculated city/area scores instead of inherited hotel count factors.
     New formula: Final Score = (factor1×coeff1 + factor2×coeff2 + ... + factorN×coeffN) / N
     Where N = 4 for cities/areas/small_cities/small_areas, N = 6 for hotels
     
@@ -29,10 +127,20 @@ def calculate_scores_in_memory(fts_results, factor_weights):
             dest_type = 'small_area'
         
         if dest_type == 'hotel':
-            # Hotels use 6 factors - direct array, no extraction needed
+            # UPDATED: Hotels now use calculated city/area scores
+            
+            # Calculate city and area scores on-demand
+            city_score, area_score = calculate_location_score_on_demand(
+                result['city_id'], 
+                result['area_id'], 
+                factor_weights, 
+                small_city_threshold
+            )
+            
+            # Hotels use 6 factors with calculated city/area scores
             factors = [
-                result['hotel_count_normalized'],
-                result['country_hotel_count_normalized'],
+                city_score,  # NEW: Calculated city score
+                area_score,  # NEW: Calculated area score
                 result['agoda_score_normalized'],
                 result['google_score_normalized'],
                 result['expenditure_score_normalized'],
@@ -41,13 +149,17 @@ def calculate_scores_in_memory(fts_results, factor_weights):
             
             hotel_weights = factor_weights['hotel']
             factor_weight_list = [
-                hotel_weights['hotel_count_weight'],
-                hotel_weights['country_hotel_count_weight'],
+                hotel_weights['city_score_weight'],  # UPDATED: New weight name
+                hotel_weights['area_score_weight'],  # UPDATED: New weight name
                 hotel_weights['agoda_score_weight'],
                 hotel_weights['google_score_weight'],
                 hotel_weights['expenditure_score_weight'],
                 hotel_weights['departure_score_weight']
             ]
+            
+            # Add calculated scores to result for UI display
+            result['city_score'] = city_score
+            result['area_score'] = area_score
             
         else:
             # Cities, small cities, areas, and small areas use 4 factors - direct array
@@ -100,8 +212,8 @@ def calculate_scores_in_memory(fts_results, factor_weights):
             result['expenditure_score_normalized'],
             result['departure_score_normalized'],
             final_score,  # This is now the simple coefficient-based score
-            padded_weights[0],  # hotel_count_weight
-            padded_weights[1],  # country_hotel_count_weight
+            padded_weights[0],  # hotel_count_weight or city_score_weight
+            padded_weights[1],  # country_hotel_count_weight or area_score_weight
             padded_weights[2],  # agoda_score_weight (0 for cities/areas)
             padded_weights[3],  # google_score_weight (0 for cities/areas)
             padded_weights[4],  # expenditure_score_weight (NOW CORRECT!)
@@ -176,16 +288,33 @@ def load_location_weights_from_database():
 
 
 def load_hotel_weights_from_database():
-    """Load 6-factor weights for hotels from hotel_weights table"""
+    """
+    Load 6-factor weights for hotels from hotel_weights table.
+    UPDATED: Use new column names (city_score_weight, area_score_weight).
+    """
     conn = get_connection()
     cursor = conn.cursor()
     
-    cursor.execute('''
-        SELECT type, hotel_count_weight, country_hotel_count_weight, 
-               agoda_score_weight, google_score_weight, 
-               expenditure_score_weight, departure_score_weight 
-        FROM hotel_weights
-    ''')
+    # Check if new columns exist, otherwise fall back to old columns for migration
+    cursor.execute("PRAGMA table_info(hotel_weights)")
+    columns = [row[1] for row in cursor.fetchall()]
+    
+    if 'city_score_weight' in columns and 'area_score_weight' in columns:
+        # Use new column names
+        cursor.execute('''
+            SELECT type, city_score_weight, area_score_weight, 
+                   agoda_score_weight, google_score_weight, 
+                   expenditure_score_weight, departure_score_weight 
+            FROM hotel_weights
+        ''')
+    else:
+        # Fall back to old column names for migration
+        cursor.execute('''
+            SELECT type, hotel_count_weight, country_hotel_count_weight, 
+                   agoda_score_weight, google_score_weight, 
+                   expenditure_score_weight, departure_score_weight 
+            FROM hotel_weights
+        ''')
     
     weights_data = cursor.fetchall()
     conn.close()
@@ -195,8 +324,8 @@ def load_hotel_weights_from_database():
     for row in weights_data:
         dest_type = row[0]  # Should be 'hotel'
         hotel_weights[dest_type] = {
-            'hotel_count_weight': row[1],
-            'country_hotel_count_weight': row[2],
+            'city_score_weight': row[1],  # Maps to first weight column
+            'area_score_weight': row[2],  # Maps to second weight column
             'agoda_score_weight': row[3],
             'google_score_weight': row[4],
             'expenditure_score_weight': row[5],
@@ -265,7 +394,10 @@ def save_location_weights_to_database(location_weights):
 
 
 def save_hotel_weights_to_database(hotel_weights):
-    """Save 6-factor weights to hotel_weights table"""
+    """
+    Save 6-factor weights to hotel_weights table.
+    UPDATED: Use new column names (city_score_weight, area_score_weight).
+    """
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -273,14 +405,14 @@ def save_hotel_weights_to_database(hotel_weights):
         weight_dict = hotel_weights['hotel']
         cursor.execute('''
             INSERT OR REPLACE INTO hotel_weights 
-            (type, hotel_count_weight, country_hotel_count_weight, 
+            (type, city_score_weight, area_score_weight, 
              agoda_score_weight, google_score_weight, 
              expenditure_score_weight, departure_score_weight)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (
             'hotel',
-            weight_dict['hotel_count_weight'],
-            weight_dict['country_hotel_count_weight'],
+            weight_dict['city_score_weight'],   # UPDATED: New column name
+            weight_dict['area_score_weight'],   # UPDATED: New column name
             weight_dict['agoda_score_weight'],
             weight_dict['google_score_weight'],
             weight_dict['expenditure_score_weight'],

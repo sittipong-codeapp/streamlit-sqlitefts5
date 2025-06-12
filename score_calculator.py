@@ -113,12 +113,13 @@ def validate_location_weights(weights_dict):
 def validate_hotel_weights(weights_dict):
     """
     Validate that all 6 hotel weights are between 0 and 1.
+    UPDATED: Check for new weight names (city_score_weight, area_score_weight).
     Returns True if valid, False otherwise.
     """
     if not weights_dict:
         return False
     
-    expected_keys = {'hotel_count_weight', 'country_hotel_count_weight',
+    expected_keys = {'city_score_weight', 'area_score_weight',
                     'agoda_score_weight', 'google_score_weight',
                     'expenditure_score_weight', 'departure_score_weight'}
     
@@ -165,12 +166,13 @@ def get_factor_count(dest_type):
 def get_factor_names(dest_type):
     """
     Get the factor names for a destination type.
+    UPDATED: Hotel factor names now use city_score_weight and area_score_weight.
     Returns list of factor names in correct order.
     """
     if dest_type == 'hotel':
         return [
-            'hotel_count_weight',
-            'country_hotel_count_weight', 
+            'city_score_weight',
+            'area_score_weight', 
             'agoda_score_weight',
             'google_score_weight',
             'expenditure_score_weight',
@@ -230,13 +232,14 @@ def create_default_weights_by_type(dest_type):
 def extract_factor_values_from_result(result, dest_type):
     """
     Extract factor values from a search result based on destination type.
+    UPDATED: Hotel factors now use city_score and area_score instead of inherited hotel counts.
     Returns list of factor values in correct order.
     """
     if dest_type == 'hotel':
-        # Hotels: 6 factors
+        # Hotels: 6 factors - UPDATED to use city_score and area_score
         return [
-            result.get('hotel_count_normalized', 0),
-            result.get('country_hotel_count_normalized', 0),
+            result.get('city_score', 0),  # NEW: City score instead of hotel_count_normalized
+            result.get('area_score', 0),  # NEW: Area score instead of country_hotel_count_normalized
             result.get('agoda_score_normalized', 0),
             result.get('google_score_normalized', 0),
             result.get('expenditure_score_normalized', 0),

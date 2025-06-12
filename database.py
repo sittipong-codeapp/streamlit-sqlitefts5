@@ -103,11 +103,12 @@ def init_database():
     ''')
 
     # Create the hotel weights table (for hotels - 6 factors)
+    # UPDATED: Changed hotel_count_weight -> city_score_weight, country_hotel_count_weight -> area_score_weight
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS hotel_weights (
             type TEXT PRIMARY KEY DEFAULT 'hotel',
-            hotel_count_weight REAL DEFAULT 0.001,
-            country_hotel_count_weight REAL DEFAULT 0.001,
+            city_score_weight REAL DEFAULT 0.001,
+            area_score_weight REAL DEFAULT 0.001,
             agoda_score_weight REAL DEFAULT 0.001,
             google_score_weight REAL DEFAULT 0.001,
             expenditure_score_weight REAL DEFAULT 0.001,
@@ -402,12 +403,13 @@ def init_database():
         )
 
         # Set default hotel weights from config
+        # UPDATED: Use new column names for hotel weights
         from config import get_default_hotel_weights
         
         hotel_weights = get_default_hotel_weights()
         cursor.execute(
-            'INSERT OR IGNORE INTO hotel_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            ('hotel', hotel_weights['hotel_count_weight'], hotel_weights['country_hotel_count_weight'],
+            'INSERT OR IGNORE INTO hotel_weights (type, city_score_weight, area_score_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            ('hotel', hotel_weights['city_score_weight'], hotel_weights['area_score_weight'],
              hotel_weights['agoda_score_weight'], hotel_weights['google_score_weight'],
              hotel_weights['expenditure_score_weight'], hotel_weights['departure_score_weight']),
         )
@@ -468,17 +470,32 @@ def init_database():
         )
 
     # Ensure hotel weights exist for upgrades
+    # UPDATED: Check for new column names and migrate old ones if needed
     cursor.execute('SELECT COUNT(*) FROM hotel_weights WHERE type = ?', ('hotel',))
     if cursor.fetchone()[0] == 0:
         from config import get_default_hotel_weights
         
         hotel_weights = get_default_hotel_weights()
         cursor.execute(
-            'INSERT OR IGNORE INTO hotel_weights (type, hotel_count_weight, country_hotel_count_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            ('hotel', hotel_weights['hotel_count_weight'], hotel_weights['country_hotel_count_weight'],
+            'INSERT OR IGNORE INTO hotel_weights (type, city_score_weight, area_score_weight, agoda_score_weight, google_score_weight, expenditure_score_weight, departure_score_weight) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            ('hotel', hotel_weights['city_score_weight'], hotel_weights['area_score_weight'],
              hotel_weights['agoda_score_weight'], hotel_weights['google_score_weight'],
              hotel_weights['expenditure_score_weight'], hotel_weights['departure_score_weight'])
         )
+    else:
+        # Migration: Check if old column names exist and update to new ones
+        cursor.execute("PRAGMA table_info(hotel_weights)")
+        columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'hotel_count_weight' in columns and 'city_score_weight' not in columns:
+            # Migrate from old schema to new schema
+            cursor.execute('ALTER TABLE hotel_weights ADD COLUMN city_score_weight REAL DEFAULT 0.001')
+            cursor.execute('ALTER TABLE hotel_weights ADD COLUMN area_score_weight REAL DEFAULT 0.001')
+            
+            # Copy old values to new columns
+            cursor.execute('UPDATE hotel_weights SET city_score_weight = hotel_count_weight, area_score_weight = country_hotel_count_weight')
+            
+            # Note: We keep old columns for backward compatibility, but new code will use new columns
 
     # NOTE: Category weights upgrade check removed - no longer used
     # The application now uses coefficient-based scoring instead of category weights
