@@ -363,7 +363,7 @@ def render_search_results(fts_results, current_factor_weights):
             "Display Name": st.column_config.TextColumn(width="medium"),
             "Final Score": st.column_config.NumberColumn(format="%.4f"),
             "Hotel Number": st.column_config.TextColumn(width="small"),
-            "Calculation": st.column_config.TextColumn(width="large"),
+            "Calculation": st.column_config.TextColumn(width="extra_large"),
         },
     )
 
