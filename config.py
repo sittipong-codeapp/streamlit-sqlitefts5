@@ -17,8 +17,8 @@ DEFAULT_CITY_WEIGHTS = {
 DEFAULT_SMALL_CITY_WEIGHTS = {
     "hotel_count_weight": 1.0,
     "country_hotel_count_weight": 0.0,
-    "expenditure_score_weight": 0.1,
-    "departure_score_weight": 0.1
+    "expenditure_score_weight": 0,
+    "departure_score_weight": 0
 }
 
 # Default factor weights for areas - 4 factors

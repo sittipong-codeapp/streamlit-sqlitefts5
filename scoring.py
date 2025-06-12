@@ -72,8 +72,19 @@ def calculate_scores_in_memory(fts_results, factor_weights):
         final_score = weighted_sum / len(factors)
         
         # Create result tuple in the format expected by UI
-        # Pad factor_weight_list to 6 elements for consistent UI display (cities/areas get 0 for agoda/google)
-        padded_weights = factor_weight_list + [0, 0] if len(factor_weight_list) == 4 else factor_weight_list
+        # FIXED: Properly map location weights to the 6-position array for UI display
+        if len(factor_weight_list) == 4:  # Location types
+            # Map 4 location weights to 6-position array: [hotel, country, agoda, google, expenditure, departure]
+            padded_weights = [
+                factor_weight_list[0],  # hotel_count_weight
+                factor_weight_list[1],  # country_hotel_count_weight  
+                0,                      # agoda_score_weight (not applicable for locations)
+                0,                      # google_score_weight (not applicable for locations)
+                factor_weight_list[2],  # expenditure_score_weight
+                factor_weight_list[3]   # departure_score_weight
+            ]
+        else:  # Hotel types (already 6 weights)
+            padded_weights = factor_weight_list
         
         scored_result = (
             dest_type,  # This will now be 'small_city' or 'small_area' for small destinations
@@ -93,8 +104,8 @@ def calculate_scores_in_memory(fts_results, factor_weights):
             padded_weights[1],  # country_hotel_count_weight
             padded_weights[2],  # agoda_score_weight (0 for cities/areas)
             padded_weights[3],  # google_score_weight (0 for cities/areas)
-            padded_weights[4] if len(padded_weights) > 4 else padded_weights[2],  # expenditure_score_weight
-            padded_weights[5] if len(padded_weights) > 5 else padded_weights[3],  # departure_score_weight
+            padded_weights[4],  # expenditure_score_weight (NOW CORRECT!)
+            padded_weights[5],  # departure_score_weight (NOW CORRECT!)
             result['country_total_hotels'],
             final_score,  # Base score same as final score (no category multiplier)
             0,  # Category weight removed (set to 0 for UI compatibility)
