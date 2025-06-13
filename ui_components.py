@@ -13,35 +13,35 @@ def render_sidebar(current_factor_weights):
     threshold_updated = False
 
     # === SMALL CITY THRESHOLD SECTION (TOP PRIORITY) ===
-    st.sidebar.subheader("🏘️ Small City Threshold")
+    # st.sidebar.subheader("🏘️ Small City Threshold")
 
 
-    with st.sidebar.form("threshold_form"):
-        current_threshold = load_small_city_threshold()
-        threshold_input = st.text_input(
-            "Hotel Count Threshold:", 
-            value=str(current_threshold),
-            help="Cities with this many hotels or fewer will be classified as 'small'. Areas inherit this classification from their parent city."
-        )
+    # with st.sidebar.form("threshold_form"):
+    #     current_threshold = load_small_city_threshold()
+    #     threshold_input = st.text_input(
+    #         "Hotel Count Threshold:", 
+    #         value=str(current_threshold),
+    #         help="Cities with this many hotels or fewer will be classified as 'small'. Areas inherit this classification from their parent city."
+    #     )
         
-        submit_threshold = st.form_submit_button("Update Threshold")
+    #     submit_threshold = st.form_submit_button("Update Threshold")
         
-        if submit_threshold:
-            try:
-                threshold_value = int(threshold_input)
-                if threshold_value >= 0:
-                    save_small_city_threshold(threshold_value)
-                    st.sidebar.success(f"Threshold updated to {threshold_value} hotels!")
-                    threshold_updated = True
-                    # Clear cache when threshold changes
-                    st.session_state.app_config['last_search_results'] = None
-                    st.session_state.app_config['threshold_changed'] = True
-                else:
-                    st.sidebar.error("Threshold must be 0 or greater.")
-            except ValueError:
-                st.sidebar.error("Please enter a valid integer for the threshold.")
+    #     if submit_threshold:
+    #         try:
+    #             threshold_value = int(threshold_input)
+    #             if threshold_value >= 0:
+    #                 save_small_city_threshold(threshold_value)
+    #                 st.sidebar.success(f"Threshold updated to {threshold_value} hotels!")
+    #                 threshold_updated = True
+    #                 # Clear cache when threshold changes
+    #                 st.session_state.app_config['last_search_results'] = None
+    #                 st.session_state.app_config['threshold_changed'] = True
+    #             else:
+    #                 st.sidebar.error("Threshold must be 0 or greater.")
+    #         except ValueError:
+    #             st.sidebar.error("Please enter a valid integer for the threshold.")
 
-    st.sidebar.divider()
+    # st.sidebar.divider()
 
     # === FACTOR WEIGHTS SECTION ===
     st.sidebar.subheader("⚙️ Factor Weight Configuration")
@@ -346,11 +346,8 @@ def render_search_results(fts_results, current_factor_weights):
         [
             "Display Name",
             "Type",
-            "Area",
-            "City",
             "Country",
             "Final Score",
-            "Hotel Number",
             "Calculation"
         ]
     ]
