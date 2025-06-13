@@ -4,6 +4,7 @@ from scoring import (
     load_small_city_threshold,
     calculate_location_score_on_demand
 )
+from score_calculator import is_small_country, get_country_classification_batch
 
 
 def search_destinations(query):
@@ -291,9 +292,13 @@ def calculate_location_scores(raw_results):
     weights = load_weights_from_database()
     threshold = load_small_city_threshold()
     
+    # Get unique country IDs for batch classification
+    country_ids = list(set(result['country_id'] for result in raw_results if result.get('country_id')))
+    country_classifications = get_country_classification_batch(country_ids, threshold)
+    
     scored_results = []
     for result in raw_results:
-        score = calculate_single_location_score(result, weights, threshold)
+        score = calculate_single_location_score(result, weights, country_classifications)
         result['final_score'] = score
         scored_results.append(result)
     
@@ -334,16 +339,18 @@ def calculate_hotel_scores_with_parents(raw_hotels):
     return scored_hotels
 
 
-def calculate_single_location_score(result, weights, threshold):
+def calculate_single_location_score(result, weights, country_classifications):
     """
     Calculate score for a single location (city/area) using coefficient-based formula.
+    Uses country-based classification from pre-calculated batch.
     """
     dest_type = result['type']
+    country_id = result['country_id']
     
-    # Dynamic classification using threshold
-    if dest_type == 'city' and result['hotel_count'] <= threshold:
+    # Dynamic classification using country-based logic
+    if dest_type == 'city' and country_classifications.get(country_id, False):
         dest_type = 'small_city'
-    elif dest_type == 'area' and result['parent_city_hotel_count'] <= threshold:
+    elif dest_type == 'area' and country_classifications.get(country_id, False):
         dest_type = 'small_area'
     
     # Get appropriate weights for this destination type

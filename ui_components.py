@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from scoring import calculate_scores_in_memory, load_small_city_threshold, save_small_city_threshold
+from score_calculator import is_small_country
 
 
 def render_sidebar(current_factor_weights):
@@ -287,6 +288,15 @@ def render_search_results(fts_results, current_factor_weights):
         axis=1,
     )
 
+    # Add Hotel Number column - show raw hotel count for locations, blank for hotels
+    df["Hotel Number"] = df.apply(
+        lambda row: (
+            "" if row["Type"] == "hotel" 
+            else str(int(row["Hotel Count"]))
+        ),
+        axis=1,
+    )
+
     # Add Calculation column - show detailed scoring breakdown
     # WARNING: DO NOT CHANGE THE CALCULATION FORMAT! Must remain: coeff(factor) + coeff(factor) => sum / count => result
     def create_calculation_string(row):
@@ -325,19 +335,22 @@ def render_search_results(fts_results, current_factor_weights):
         calculation_str = " + ".join(calc_parts)
         final_score = total_sum / factor_count
         
-        return f"{calculation_str}"
+        return f"{calculation_str} => {total_sum:.1f} / {factor_count} => {final_score:.2f}"
     
     df["Calculation"] = df.apply(create_calculation_string, axis=1)
 
     st.write(f"Found {len(scored_results)} matching destinations:")
 
-    # Show results with removed columns: Area, City, and Hotel Number removed
+    # Show results with enhanced calculation display
     display_df = df[
         [
             "Display Name",
             "Type",
+            "Area",
+            "City",
             "Country",
             "Final Score",
+            "Hotel Number",
             "Calculation"
         ]
     ]
@@ -347,9 +360,9 @@ def render_search_results(fts_results, current_factor_weights):
         column_config={
             "Display Name": st.column_config.TextColumn(width="medium"),
             "Final Score": st.column_config.NumberColumn(format="%.4f"),
+            "Hotel Number": st.column_config.TextColumn(width="small"),
             "Calculation": st.column_config.TextColumn(width="extra_large"),
         },
-        use_container_width=True
     )
 
 
@@ -366,10 +379,11 @@ def convert_dict_results_to_tuple_format(dict_results, current_factor_weights):
     for result in dict_results:
         dest_type = result['type']
         
-        # Dynamic classification for display
-        if dest_type == 'city' and result.get('hotel_count', 0) <= small_city_threshold:
+        # Dynamic classification for display based on country
+        country_id = result.get('country_id')
+        if dest_type == 'city' and is_small_country(country_id, small_city_threshold):
             dest_type = 'small_city'
-        elif dest_type == 'area' and result.get('parent_city_hotel_count', 0) <= small_city_threshold:
+        elif dest_type == 'area' and is_small_country(country_id, small_city_threshold):
             dest_type = 'small_area'
         
         # Get final score (should be pre-calculated)

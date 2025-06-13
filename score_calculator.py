@@ -68,6 +68,35 @@ def get_country_max_hotels(country_ids):
     return country_maxes
 
 
+def is_small_country(country_id, threshold):
+    """
+    Check if a country is small based on its max city hotel count.
+    Returns True if the country's largest city has <= threshold hotels.
+    """
+    if not country_id:
+        return False
+    
+    max_hotels = get_country_max_hotels([country_id])
+    return max_hotels.get(country_id, 0) <= threshold
+
+
+def get_country_classification_batch(country_ids, threshold):
+    """
+    Get country classifications for multiple countries at once for performance.
+    Returns dict: {country_id: is_small_country}
+    """
+    if not country_ids:
+        return {}
+    
+    country_maxes = get_country_max_hotels(country_ids)
+    classifications = {}
+    
+    for country_id, max_hotels in country_maxes.items():
+        classifications[country_id] = max_hotels <= threshold
+    
+    return classifications
+
+
 def normalize_value(value, max_value, scale=100):
     """Simple normalization utility function"""
     if not value or not max_value or max_value <= 0:

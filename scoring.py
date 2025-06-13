@@ -1,4 +1,5 @@
 from database import get_connection
+from score_calculator import is_small_country
 
 
 def calculate_location_score_on_demand(city_id, area_id, factor_weights, small_city_threshold):
@@ -25,9 +26,9 @@ def calculate_location_score_on_demand(city_id, area_id, factor_weights, small_c
     city_score = 0
     
     if city_result:
-        # Determine if this is a small city
-        city_hotel_count = city_result[8] if city_result[8] else 0
-        dest_type = 'small_city' if city_hotel_count <= small_city_threshold else 'city'
+        # Determine if this is a small city based on country classification
+        country_id = city_result[1]
+        dest_type = 'small_city' if is_small_country(country_id, small_city_threshold) else 'city'
         
         # Get appropriate weights
         location_weights = factor_weights[dest_type]
@@ -68,9 +69,9 @@ def calculate_location_score_on_demand(city_id, area_id, factor_weights, small_c
         area_result = cursor.fetchone()
         
         if area_result:
-            # Determine if this is a small area (based on parent city size)
-            parent_city_hotel_count = area_result[8] if area_result[8] else 0
-            dest_type = 'small_area' if parent_city_hotel_count <= small_city_threshold else 'area'
+            # Determine if this is a small area based on country classification
+            country_id = area_result[1]
+            dest_type = 'small_area' if is_small_country(country_id, small_city_threshold) else 'area'
             
             # Get appropriate weights
             location_weights = factor_weights[dest_type]
@@ -122,10 +123,11 @@ def calculate_scores_in_memory(fts_results, factor_weights):
             # Fallback: calculate score if not pre-calculated
             final_score = calculate_fallback_score(result, factor_weights, small_city_threshold)
         
-        # Dynamic classification for UI display
-        if dest_type == 'city' and result.get('hotel_count', 0) <= small_city_threshold:
+        # Dynamic classification for UI display based on country
+        country_id = result.get('country_id')
+        if dest_type == 'city' and is_small_country(country_id, small_city_threshold):
             dest_type = 'small_city'
-        elif dest_type == 'area' and result.get('parent_city_hotel_count', 0) <= small_city_threshold:
+        elif dest_type == 'area' and is_small_country(country_id, small_city_threshold):
             dest_type = 'small_area'
         
         # Prepare weights for UI display (6-position array format)
@@ -191,10 +193,11 @@ def calculate_fallback_score(result, factor_weights, small_city_threshold):
     """
     dest_type = result['type']
     
-    # Dynamic classification
-    if dest_type == 'city' and result.get('hotel_count', 0) <= small_city_threshold:
+    # Dynamic classification based on country
+    country_id = result.get('country_id')
+    if dest_type == 'city' and is_small_country(country_id, small_city_threshold):
         dest_type = 'small_city'
-    elif dest_type == 'area' and result.get('parent_city_hotel_count', 0) <= small_city_threshold:
+    elif dest_type == 'area' and is_small_country(country_id, small_city_threshold):
         dest_type = 'small_area'
     
     if dest_type == 'hotel':
