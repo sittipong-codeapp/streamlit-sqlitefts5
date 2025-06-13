@@ -190,6 +190,9 @@ def get_raw_location_data(query):
         LEFT JOIN destination d ON d.area_id = ar.id AND d.type = 'area'
         LEFT JOIN destination_score s ON d.id = s.destination_id
         WHERE city_fts.name MATCH ?
+
+        ORDER BY hotel_count_normalized desc,
+                 country_hotel_count_normalized desc
     ''', (match_pattern, match_pattern, match_pattern, match_pattern))
 
     location_results = cursor.fetchall()
@@ -255,6 +258,12 @@ def get_all_matching_hotels(query):
         LEFT JOIN destination d ON d.id = (h.id + 20000) AND d.type = 'hotel'
         LEFT JOIN destination_score s ON d.id = s.destination_id
         WHERE fts.name MATCH ?
+
+        ORDER BY expenditure_score_normalized desc,
+                 departure_score_normalized desc,
+                 hotel_count_normalized desc,
+                 country_hotel_count_normalized desc,
+                 agoda_score_normalized desc
     ''', (match_pattern,))
 
     hotel_results = cursor.fetchall()
