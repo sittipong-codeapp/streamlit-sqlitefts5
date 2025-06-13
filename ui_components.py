@@ -228,9 +228,8 @@ def render_hotel_factor_form(dest_type, current_factor_weights):
 
 def render_search_results(fts_results, current_factor_weights):
     """
-    SIMPLIFIED: Render search results that come pre-scored from the enhanced search logic.
-    No longer needs to calculate scores since they come with final_score already computed.
-    Now mainly focuses on formatting and displaying the pre-calculated results.
+    FIXED: Render search results that come pre-scored from the enhanced search logic.
+    Final Score column now matches exactly what's shown in the calculation.
     """
     if not fts_results:
         st.write("No matching destinations found.")
@@ -248,7 +247,7 @@ def render_search_results(fts_results, current_factor_weights):
         st.write("No matching destinations found.")
         return
 
-    # Create main results dataframe (simplified without category weight info)
+    # Create main results dataframe with DYNAMIC COLUMN NAMES based on content
     df = pd.DataFrame(
         scored_results,
         columns=[
@@ -258,23 +257,23 @@ def render_search_results(fts_results, current_factor_weights):
             "City",
             "Area",
             "Hotel Count",
-            "Normalized: Hotel Count",
-            "Normalized: Country Hotel Count",
+            "Factor 1 Value",  # CHANGED: This will be hotel_count_normalized OR city_score
+            "Factor 2 Value",  # CHANGED: This will be country_hotel_count_normalized OR area_score
             "Normalized: Agoda Score",
             "Normalized: Google Score",
             "Normalized: Expenditure Score",
             "Normalized: Departure Score",
-            "Final Score",  # This is the pre-calculated score from search
-            "Coefficient: Factor 1",      # hotel_count_weight OR city_score_weight
-            "Coefficient: Factor 2",      # country_hotel_count_weight OR area_score_weight
+            "Final Score",
+            "Coefficient: Factor 1",
+            "Coefficient: Factor 2",
             "Coefficient: Agoda Score",
             "Coefficient: Google Score",
             "Coefficient: Expenditure Score",
             "Coefficient: Departure Score",
             "Country Total Hotels",
-            "Base Score",           # Same as final score
-            "Category Weight",      # Set to 0 (legacy compatibility)
-            "Category Multiplier"   # Set to 1 (legacy compatibility)
+            "Base Score",
+            "Category Weight",
+            "Category Multiplier"
         ],
     )
 
@@ -297,47 +296,52 @@ def render_search_results(fts_results, current_factor_weights):
         axis=1,
     )
 
-    # Add Calculation column - show detailed scoring breakdown
-    # WARNING: DO NOT CHANGE THE CALCULATION FORMAT! Must remain: coeff(factor) + coeff(factor) => sum / count => result
-    def create_calculation_string(row):
+    # FIXED: Add Calculation column and recalculate Final Score to match calculation
+    def create_calculation_string_and_update_final_score(row):
         dest_type = row["Type"]
         
         if dest_type == "hotel":
-            # Hotels: 6 factors
-            factors = [
-                (row["Coefficient: Factor 1"], row["Normalized: Hotel Count"]),
-                (row["Coefficient: Factor 2"], row["Normalized: Country Hotel Count"]),
-                (row["Coefficient: Agoda Score"], row["Normalized: Agoda Score"]),
-                (row["Coefficient: Google Score"], row["Normalized: Google Score"]),
-                (row["Coefficient: Expenditure Score"], row["Normalized: Expenditure Score"]),
-                (row["Coefficient: Departure Score"], row["Normalized: Departure Score"])
+            # Hotels: 6 factors with correct names
+            factors_info = [
+                (row["Coefficient: Factor 1"], row["Factor 1 Value"], "City Score"),
+                (row["Coefficient: Factor 2"], row["Factor 2 Value"], "Area Score"),
+                (row["Coefficient: Agoda Score"], row["Normalized: Agoda Score"], "Agoda"),
+                (row["Coefficient: Google Score"], row["Normalized: Google Score"], "Google"),
+                (row["Coefficient: Expenditure Score"], row["Normalized: Expenditure Score"], "Expenditure"),
+                (row["Coefficient: Departure Score"], row["Normalized: Departure Score"], "Departure")
             ]
             factor_count = 6
         else:
-            # Locations: 4 factors (city, small_city, area, small_area)
-            factors = [
-                (row["Coefficient: Factor 1"], row["Normalized: Hotel Count"]),
-                (row["Coefficient: Factor 2"], row["Normalized: Country Hotel Count"]),
-                (row["Coefficient: Expenditure Score"], row["Normalized: Expenditure Score"]),
-                (row["Coefficient: Departure Score"], row["Normalized: Departure Score"])
+            # Locations: 4 factors with correct names
+            factors_info = [
+                (row["Coefficient: Factor 1"], row["Factor 1 Value"], "Hotel Count"),
+                (row["Coefficient: Factor 2"], row["Factor 2 Value"], "Country Hotel Count"),
+                (row["Coefficient: Expenditure Score"], row["Normalized: Expenditure Score"], "Expenditure"),
+                (row["Coefficient: Departure Score"], row["Normalized: Departure Score"], "Departure")
             ]
             factor_count = 4
         
-        # Create calculation parts
+        # Create calculation parts with proper names
         calc_parts = []
-        total_sum = 0
+        calculated_sum = 0
         
-        for coeff, factor in factors:
-            calc_parts.append(f"{coeff:.1f}({int(factor)})")
-            total_sum += coeff * factor
+        for coeff, factor_value, factor_name in factors_info:
+            calc_parts.append(f"{coeff:.1f}({int(factor_value)})")
+            calculated_sum += coeff * factor_value
         
-        # Format: coeff(factor) + coeff(factor) + ... => sum / count => final_score
+        # Calculate the final score that matches the calculation display
+        calculated_final_score = calculated_sum / factor_count
+        
+        # Create calculation string
         calculation_str = " + ".join(calc_parts)
-        final_score = total_sum / factor_count
+        # calculation_str += f" => {calculated_sum:.2f}/{factor_count} => {calculated_final_score:.4f}"
         
-        return f"{calculation_str}"
+        return calculation_str, calculated_final_score
     
-    df["Calculation"] = df.apply(create_calculation_string, axis=1)
+    # Apply the function and update both Calculation and Final Score columns
+    calculation_results = df.apply(create_calculation_string_and_update_final_score, axis=1, result_type='expand')
+    df["Calculation"] = calculation_results[0]
+    df["Final Score"] = calculation_results[1]  # Update Final Score to match calculation
 
     st.write(f"Found {len(scored_results)} matching destinations:")
 
@@ -365,8 +369,7 @@ def render_search_results(fts_results, current_factor_weights):
 
 def convert_dict_results_to_tuple_format(dict_results, current_factor_weights):
     """
-    Convert new dictionary format results to the legacy tuple format expected by the UI.
-    This ensures compatibility with existing display code.
+    FIXED: Convert new dictionary format results to the legacy tuple format with proper data mapping.
     """
     # Load threshold for classification
     small_city_threshold = load_small_city_threshold()
@@ -386,7 +389,7 @@ def convert_dict_results_to_tuple_format(dict_results, current_factor_weights):
         # Get final score (should be pre-calculated)
         final_score = result.get('final_score', 0)
         
-        # Prepare weights for UI display (6-position array format)
+        # FIXED: Prepare weights and factor values correctly based on type
         if dest_type == 'hotel':
             hotel_weights = current_factor_weights['hotel']
             padded_weights = [
@@ -397,9 +400,9 @@ def convert_dict_results_to_tuple_format(dict_results, current_factor_weights):
                 hotel_weights['expenditure_score_weight'],
                 hotel_weights['departure_score_weight']
             ]
-            # For hotels, show calculated city/area scores in the normalized fields
-            hotel_count_norm = result.get('city_score', 0)  # Show city score
-            country_hotel_norm = result.get('area_score', 0)  # Show area score
+            # For hotels: Factor 1 = city_score, Factor 2 = area_score
+            factor1_value = result.get('city_score', 0)
+            factor2_value = result.get('area_score', 0)
         else:
             # Location types - map 4 weights to 6-position array
             location_weights = current_factor_weights[dest_type]
@@ -411,9 +414,9 @@ def convert_dict_results_to_tuple_format(dict_results, current_factor_weights):
                 location_weights['expenditure_score_weight'],
                 location_weights['departure_score_weight']
             ]
-            # For locations, show actual normalized values
-            hotel_count_norm = result.get('hotel_count_normalized', 0)
-            country_hotel_norm = result.get('country_hotel_count_normalized', 0)
+            # For locations: Factor 1 = hotel_count_normalized, Factor 2 = country_hotel_count_normalized
+            factor1_value = result.get('hotel_count_normalized', 0)
+            factor2_value = result.get('country_hotel_count_normalized', 0)
         
         # Create result tuple in the format expected by UI
         tuple_result = (
@@ -423,8 +426,8 @@ def convert_dict_results_to_tuple_format(dict_results, current_factor_weights):
             result['city_name'],
             result.get('area_name', ''),
             result.get('hotel_count', 0),
-            hotel_count_norm,  # This will show city_score for hotels, hotel_count_normalized for locations
-            country_hotel_norm,  # This will show area_score for hotels, country_hotel_count_normalized for locations
+            factor1_value,  # FIXED: Properly mapped factor 1 value
+            factor2_value,  # FIXED: Properly mapped factor 2 value
             result.get('agoda_score_normalized', 0),
             result.get('google_score_normalized', 0),
             result.get('expenditure_score_normalized', 0),
