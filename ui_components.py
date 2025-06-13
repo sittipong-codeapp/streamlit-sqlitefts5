@@ -335,7 +335,7 @@ def render_search_results(fts_results, current_factor_weights):
         calculation_str = " + ".join(calc_parts)
         final_score = total_sum / factor_count
         
-        return f"{calculation_str} => {total_sum:.1f} / {factor_count} => {final_score:.2f}"
+        return f"{calculation_str}"
     
     df["Calculation"] = df.apply(create_calculation_string, axis=1)
 
